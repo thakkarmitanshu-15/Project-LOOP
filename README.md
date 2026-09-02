@@ -1,36 +1,120 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# LOOP — AI Customer-Feedback Intelligence Platform
 
-## Getting Started
+LOOP is a multi-tenant customer-feedback intelligence platform designed to collect, organize, analyze, and eventually interpret customer feedback using AI.
 
-First, run the development server:
+The project is being developed as an internship project using Next.js, TypeScript, PostgreSQL, Prisma, NextAuth, Tailwind CSS, and Anthropic Claude.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+---
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Current Project Status
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Completed
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- User authentication with NextAuth
+- User signup and login
+- Multi-tenant workspace architecture
+- Role-based access control
+- Admin, Analyst, and Viewer roles
+- Workspace-scoped API authorization
+- Feedback management
+- Feedback detail view
+- Feedback search and filtering
+- Pagination
+- Feedback status workflow
+- Manual feedback ingestion
+- CSV bulk feedback import
+- Analytics API
+- Real-data analytics dashboard
+- Recharts visualizations
 
-## Learn More
+### In Progress
 
-To learn more about Next.js, take a look at the following resources:
+- AI-powered feedback classification
+- AI sentiment analysis
+- AI theme extraction
+- Theme trend analysis
+- Ask LOOP
+- AI-generated insights
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### Planned
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- Voice-of-Customer reports
+- Report generation
+- Production-ready UI refinement
+- Documentation and demo preparation
+- Deployment
 
-## Deploy on Vercel
+---
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Technology Stack
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+### Frontend
+
+- Next.js 14
+- React
+- TypeScript
+- Tailwind CSS
+- Recharts
+
+### Backend
+
+- Next.js Route Handlers
+- NextAuth
+- Prisma ORM
+
+### Database
+
+- PostgreSQL
+
+### AI
+
+- Anthropic Claude API
+
+### Validation
+
+- Zod
+
+---
+
+## Architecture
+
+The application follows a server-side API architecture:
+
+Browser
+↓
+Next.js UI
+↓
+Next.js Route Handlers
+↓
+Authentication / Authorization
+↓
+Prisma
+↓
+PostgreSQL
+
+AI requests will also be handled server-side:
+
+Browser
+↓
+Next.js API Route
+↓
+Anthropic Claude API
+
+API routes are responsible for authentication, authorization, workspace scoping, validation, database operations, and AI communication.
+
+---
+
+## Multi-Tenancy
+
+LOOP uses workspace-based multi-tenancy.
+
+Each user belongs to a workspace and every feedback record is associated with a workspace.
+
+API queries are scoped using the authenticated user's workspace ID.
+
+Example:
+
+```ts
+where: {
+  workspaceId: session.user.workspaceId
+}
