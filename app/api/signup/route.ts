@@ -1,9 +1,9 @@
-import { PrismaClient, Role } from "@prisma/client";
+import { Role } from "@prisma/client";
 import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
+import { prisma } from "@/lib/db";
 
-const prisma = new PrismaClient();
 
 const signupSchema = z.object({
   name: z

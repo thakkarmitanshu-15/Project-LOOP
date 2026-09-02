@@ -1,0 +1,7 @@
+content,channel,customerLabel,sourceRef
+"The mobile app crashes when I open notifications","App Store","Mobile User","CSV-001"
+"Billing information is easy to understand","Support","Business Customer","CSV-002"
+"The dashboard takes too long to load","NPS","Power User","CSV-003"
+"Customer support responded very quickly to my issue","Support","Returning Customer","CSV-004"
+"The onboarding process was confusing and took too long","Sales","New Customer","CSV-005"
+"Login failed twice before finally allowing me to sign in","Community","User","CSV-006"
