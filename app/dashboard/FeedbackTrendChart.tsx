@@ -17,10 +17,18 @@ type FeedbackTrendChartProps = {
   }[];
 };
 
+type WeeklyData = {
+  week: string;
+  count: number;
+  isSpike: boolean;
+};
+
 export default function FeedbackTrendChart({
   data,
 }: FeedbackTrendChartProps) {
   const weeklyData = getWeeklyData(data);
+
+  const spikes = weeklyData.filter((item) => item.isSpike);
 
   return (
     <div className="rounded-xl bg-white p-6 shadow-sm">
@@ -33,6 +41,25 @@ export default function FeedbackTrendChart({
           Weekly volume of customer feedback received.
         </p>
       </div>
+
+      {spikes.length > 0 && (
+        <div className="mb-5 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
+          <p className="text-sm font-medium text-amber-900">
+            Spike detected
+          </p>
+
+          <p className="mt-1 text-sm text-amber-800">
+            Feedback volume increased significantly during{" "}
+            {spikes.map((spike, index) => (
+              <span key={spike.week}>
+                <strong>{spike.week}</strong>
+                {index < spikes.length - 1 ? ", " : ""}
+              </span>
+            ))}
+            .
+          </p>
+        </div>
+      )}
 
       {weeklyData.length === 0 ? (
         <div className="flex h-80 items-center justify-center">
@@ -117,9 +144,30 @@ export default function FeedbackTrendChart({
                 stroke="#111827"
                 strokeWidth={2}
                 fill="url(#feedbackGradient)"
-                dot={{
-                  r: 3,
-                  fill: "#111827",
+                dot={(props) => {
+                  const { cx, cy, payload } = props;
+
+                  if (payload.isSpike) {
+                    return (
+                      <circle
+                        cx={cx}
+                        cy={cy}
+                        r={6}
+                        fill="#111827"
+                        stroke="#ffffff"
+                        strokeWidth={2}
+                      />
+                    );
+                  }
+
+                  return (
+                    <circle
+                      cx={cx}
+                      cy={cy}
+                      r={3}
+                      fill="#111827"
+                    />
+                  );
                 }}
                 activeDot={{
                   r: 5,
@@ -138,7 +186,7 @@ function getWeeklyData(
     date: string;
     count: number;
   }[]
-) {
+): WeeklyData[] {
   const weeklyMap = new Map<
     string,
     {
@@ -175,13 +223,22 @@ function getWeeklyData(
     }
   }
 
-  return Array.from(weeklyMap.values())
-    .sort(
-      (a, b) =>
-        a.startDate.getTime() -
-        b.startDate.getTime()
-    )
-    .map((item) => ({
+  const sortedData = Array.from(weeklyMap.values()).sort(
+    (a, b) =>
+      a.startDate.getTime() -
+      b.startDate.getTime()
+  );
+
+  return sortedData.map((item, index) => {
+    const previousWeek =
+      index > 0 ? sortedData[index - 1].count : null;
+
+    const isSpike =
+      previousWeek !== null &&
+      previousWeek > 0 &&
+      item.count >= previousWeek * 1.5;
+
+    return {
       week: item.startDate.toLocaleDateString(
         "en-IN",
         {
@@ -190,5 +247,7 @@ function getWeeklyData(
         }
       ),
       count: item.count,
-    }));
+      isSpike,
+    };
+  });
 }

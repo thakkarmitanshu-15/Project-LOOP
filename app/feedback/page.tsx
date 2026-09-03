@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
+import { useSearchParams } from "next/navigation";
 
 type FeedbackTheme = {
   confidence: number;
@@ -40,19 +41,31 @@ export default function FeedbackPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  const searchParams = useSearchParams();
   const { data: session } = useSession();
 
   const [search, setSearch] = useState("");
   const [sentiment, setSentiment] = useState("");
   const [status, setStatus] = useState("");
   const [channel, setChannel] = useState("");
+  const [themeId, setThemeId] = useState(
+    searchParams.get("themeId") ?? ""
+  );
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+
+  const [themes, setThemes] = useState<
+    { id: string; name: string }[]
+  >([]);
 
   const [page, setPage] = useState(1);
   const [filterVersion, setFilterVersion] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
 
-  const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [updatingId, setUpdatingId] = useState<string | null>(
+    null
+  );
 
   // Add Feedback state
   const [showAddForm, setShowAddForm] = useState(false);
@@ -97,6 +110,18 @@ export default function FeedbackPage() {
         params.set("channel", channel);
       }
 
+      if (themeId) {
+        params.set("themeId", themeId);
+      }
+
+      if (dateFrom) {
+        params.set("dateFrom", dateFrom);
+      }
+
+      if (dateTo) {
+        params.set("dateTo", dateTo);
+      }
+
       const queryString = params.toString();
 
       const response = await fetch(
@@ -124,6 +149,26 @@ export default function FeedbackPage() {
     loadFeedback();
   }, [page, filterVersion]);
 
+  useEffect(() => {
+    async function loadThemes() {
+      try {
+        const response = await fetch("/api/themes");
+
+        if (!response.ok) {
+          throw new Error("Failed to load themes");
+        }
+
+        const data = await response.json();
+
+        setThemes(data.themes ?? []);
+      } catch (error) {
+        console.error("Failed to load themes:", error);
+      }
+    }
+
+    loadThemes();
+  }, []);
+
   function handleFilter() {
     setPage(1);
     setFilterVersion((version) => version + 1);
@@ -134,6 +179,9 @@ export default function FeedbackPage() {
     setSentiment("");
     setStatus("");
     setChannel("");
+    setThemeId("");
+    setDateFrom("");
+    setDateTo("");
     setPage(1);
     setFilterVersion((version) => version + 1);
   }
@@ -294,82 +342,182 @@ export default function FeedbackPage() {
     session?.user?.role === "ANALYST";
 
   return (
-    <main className="min-h-screen bg-gray-50 p-6">
-      <div className="mx-auto max-w-7xl">
-        {/* Header */}
-        <div className="mb-6">
-          <h1 className="text-2xl font-bold text-gray-900">
-            Feedback Inbox
-          </h1>
-
-          <p className="mt-1 text-sm text-gray-600">
-            Review and manage customer feedback.
-          </p>
-        </div>
-
-        {/* Feedback Actions */}
-        {canManageFeedback && (
-          <div className="mb-6">
-            <div className="flex flex-wrap gap-3">
-              {/* Add Feedback Button */}
-              <button
-                onClick={() => {
-                  setShowAddForm((value) => !value);
-                  setShowImportForm(false);
-                  setCreateError("");
-                  setImportError("");
-                }}
-                className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800"
-              >
-                {showAddForm
-                  ? "Cancel"
-                  : "+ Add Feedback"}
-              </button>
-
-              {/* Import CSV Button */}
-              <button
-                onClick={() => {
-                  setShowImportForm((value) => !value);
-                  setShowAddForm(false);
-                  setImportError("");
-                  setCreateError("");
-                }}
-                className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-900 hover:bg-gray-50"
-              >
-                {showImportForm
-                  ? "Cancel Import"
-                  : "Import CSV"}
-              </button>
+    <main className="min-h-screen bg-slate-50">
+      {/* Top navigation */}
+      <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 backdrop-blur">
+        <div className="mx-auto flex h-16 max-w-[1600px] items-center justify-between px-6 lg:px-10">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-950 text-sm font-bold text-white">
+              L
             </div>
 
-            {/* Add Feedback Success */}
-            {createSuccess && (
-              <p className="mt-3 text-sm font-medium text-green-600">
-                {createSuccess}
+            <div>
+              <p className="text-base font-bold tracking-tight text-slate-950">
+                LOOP
               </p>
+
+              <p className="hidden text-[10px] uppercase tracking-widest text-slate-400 sm:block">
+                Customer Intelligence
+              </p>
+            </div>
+          </div>
+
+          <nav className="flex items-center gap-1">
+            <a
+              href="/dashboard"
+              className="rounded-lg px-3.5 py-2 text-sm font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
+            >
+              Dashboard
+            </a>
+
+            <a
+              href="/feedback"
+              className="rounded-lg bg-slate-950 px-3.5 py-2 text-sm font-semibold text-white"
+            >
+              Feedback
+            </a>
+
+            <a
+              href="/themes"
+              className="hidden rounded-lg px-3.5 py-2 text-sm font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 sm:block"
+            >
+              Themes
+            </a>
+
+            <div className="mx-2 hidden h-6 w-px bg-slate-200 sm:block" />
+
+            <div className="hidden text-right sm:block">
+              <p className="text-xs font-semibold text-slate-900">
+                {session?.user?.name}
+              </p>
+
+              <p className="text-[10px] text-slate-500">
+                {session?.user?.role}
+              </p>
+            </div>
+
+            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-900 text-xs font-semibold text-white">
+              {session?.user?.name
+                ?.charAt(0)
+                .toUpperCase() ?? "U"}
+            </div>
+          </nav>
+        </div>
+      </header>
+
+      <div className="mx-auto max-w-[1600px] px-6 py-8 lg:px-10">
+        {/* Page heading */}
+        <section className="mb-8">
+          <div className="flex flex-col justify-between gap-5 md:flex-row md:items-end">
+            <div>
+              <div className="mb-3 flex items-center gap-2">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+
+                <span className="text-xs font-semibold uppercase tracking-widest text-slate-500">
+                  Customer Feedback
+                </span>
+              </div>
+
+              <h1 className="text-3xl font-bold tracking-tight text-slate-950">
+                Feedback Inbox
+              </h1>
+
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
+                Review, filter, and manage customer feedback
+                across your workspace.
+              </p>
+            </div>
+
+            <div className="rounded-xl border border-slate-200 bg-white px-5 py-3 shadow-sm">
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">
+                Total Feedback
+              </p>
+
+              <p className="mt-1 text-xl font-bold text-slate-950">
+                {total}
+              </p>
+            </div>
+          </div>
+        </section>
+
+        {/* Actions */}
+        {canManageFeedback && (
+          <section className="mb-6">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-slate-900">
+                  Feedback Management
+                </p>
+
+                <p className="mt-0.5 text-xs text-slate-500">
+                  Add individual feedback or import multiple
+                  records.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={() => {
+                    setShowAddForm((value) => !value);
+                    setShowImportForm(false);
+                    setCreateError("");
+                    setImportError("");
+                  }}
+                  className="rounded-lg bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800"
+                >
+                  {showAddForm
+                    ? "Cancel"
+                    : "+ Add Feedback"}
+                </button>
+
+                <button
+                  onClick={() => {
+                    setShowImportForm((value) => !value);
+                    setShowAddForm(false);
+                    setImportError("");
+                    setCreateError("");
+                  }}
+                  className="rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
+                >
+                  {showImportForm
+                    ? "Cancel Import"
+                    : "Import CSV"}
+                </button>
+              </div>
+            </div>
+
+            {createSuccess && (
+              <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">
+                {createSuccess}
+              </div>
             )}
 
-            {/* CSV Import Success */}
             {importSuccess && (
-              <p className="mt-3 text-sm font-medium text-green-600">
+              <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">
                 {importSuccess}
-              </p>
+              </div>
             )}
 
             {/* Add Feedback Form */}
             {showAddForm && (
               <form
                 onSubmit={createFeedback}
-                className="mt-4 rounded-lg border border-gray-200 bg-white p-6 shadow-sm"
+                className="mt-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
               >
-                <h2 className="mb-4 text-lg font-semibold text-gray-900">
-                  Add Feedback
-                </h2>
+                <div className="mb-5">
+                  <h2 className="text-lg font-semibold text-slate-950">
+                    Add Feedback
+                  </h2>
 
-                <div className="space-y-4">
-                  {/* Feedback */}
-                  <div>
-                    <label className="mb-1 block text-sm font-medium text-gray-700">
+                  <p className="mt-1 text-sm text-slate-500">
+                    Add a new customer feedback record to the
+                    workspace.
+                  </p>
+                </div>
+
+                <div className="grid gap-5 md:grid-cols-2">
+                  <div className="md:col-span-2">
+                    <label className="mb-1.5 block text-sm font-medium text-slate-700">
                       Feedback
                     </label>
 
@@ -380,14 +528,13 @@ export default function FeedbackPage() {
                       }
                       required
                       rows={4}
-                      className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-900 outline-none focus:border-gray-500"
+                      className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
                       placeholder="Enter customer feedback..."
                     />
                   </div>
 
-                  {/* Channel */}
                   <div>
-                    <label className="mb-1 block text-sm font-medium text-gray-700">
+                    <label className="mb-1.5 block text-sm font-medium text-slate-700">
                       Channel
                     </label>
 
@@ -396,33 +543,18 @@ export default function FeedbackPage() {
                       onChange={(event) =>
                         setNewChannel(event.target.value)
                       }
-                      className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-900"
+                      className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
                     >
-                      <option value="Support">
-                        Support
-                      </option>
-
-                      <option value="App Store">
-                        App Store
-                      </option>
-
-                      <option value="NPS">
-                        NPS
-                      </option>
-
-                      <option value="Sales">
-                        Sales
-                      </option>
-
-                      <option value="Community">
-                        Community
-                      </option>
+                      <option value="Support">Support</option>
+                      <option value="App Store">App Store</option>
+                      <option value="NPS">NPS</option>
+                      <option value="Sales">Sales</option>
+                      <option value="Community">Community</option>
                     </select>
                   </div>
 
-                  {/* Customer Label */}
                   <div>
-                    <label className="mb-1 block text-sm font-medium text-gray-700">
+                    <label className="mb-1.5 block text-sm font-medium text-slate-700">
                       Customer Label
                     </label>
 
@@ -434,14 +566,13 @@ export default function FeedbackPage() {
                           event.target.value
                         )
                       }
-                      className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-900"
+                      className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
                       placeholder="Optional"
                     />
                   </div>
 
-                  {/* Source Reference */}
                   <div>
-                    <label className="mb-1 block text-sm font-medium text-gray-700">
+                    <label className="mb-1.5 block text-sm font-medium text-slate-700">
                       Source Reference
                     </label>
 
@@ -449,49 +580,51 @@ export default function FeedbackPage() {
                       type="text"
                       value={newSourceRef}
                       onChange={(event) =>
-                        setNewSourceRef(
-                          event.target.value
-                        )
+                        setNewSourceRef(event.target.value)
                       }
-                      className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-900"
+                      className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
                       placeholder="Optional"
                     />
                   </div>
 
-                  {/* Error */}
                   {createError && (
-                    <p className="text-sm text-red-600">
+                    <p className="text-sm text-red-600 md:col-span-2">
                       {createError}
                     </p>
                   )}
 
-                  {/* Submit */}
-                  <button
-                    type="submit"
-                    disabled={creating}
-                    className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {creating
-                      ? "Adding..."
-                      : "Add Feedback"}
-                  </button>
+                  <div className="md:col-span-2">
+                    <button
+                      type="submit"
+                      disabled={creating}
+                      className="rounded-lg bg-slate-950 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {creating
+                        ? "Adding..."
+                        : "Add Feedback"}
+                    </button>
+                  </div>
                 </div>
               </form>
             )}
 
             {/* CSV Import Form */}
             {showImportForm && (
-              <div className="mt-4 rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
-                <h2 className="mb-2 text-lg font-semibold text-gray-900">
-                  Import Feedback from CSV
-                </h2>
+              <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                <div className="mb-5">
+                  <h2 className="text-lg font-semibold text-slate-950">
+                    Import Feedback from CSV
+                  </h2>
 
-                <p className="mb-4 text-sm text-gray-600">
-                  Select a CSV file using the required
-                  columns:
-                  {" "}
-                  content, channel, customerLabel, sourceRef
-                </p>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Upload a CSV using the required columns:
+                    <span className="font-medium text-slate-700">
+                      {" "}
+                      content, channel, customerLabel,
+                      sourceRef
+                    </span>
+                  </p>
+                </div>
 
                 <input
                   type="file"
@@ -503,12 +636,15 @@ export default function FeedbackPage() {
                     setImportError("");
                     setImportSuccess("");
                   }}
-                  className="block w-full text-sm text-gray-900"
+                  className="block w-full rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700"
                 />
 
                 {csvFile && (
-                  <p className="mt-2 text-sm text-gray-600">
-                    Selected file: {csvFile.name}
+                  <p className="mt-3 text-sm text-slate-500">
+                    Selected file:{" "}
+                    <span className="font-medium text-slate-700">
+                      {csvFile.name}
+                    </span>
                   </p>
                 )}
 
@@ -522,7 +658,7 @@ export default function FeedbackPage() {
                   type="button"
                   onClick={importCsv}
                   disabled={!csvFile || importing}
-                  className="mt-4 rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="mt-4 rounded-lg bg-slate-950 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {importing
                     ? "Importing..."
@@ -530,17 +666,29 @@ export default function FeedbackPage() {
                 </button>
               </div>
             )}
-          </div>
+          </section>
         )}
 
         {/* Filters */}
-        <div className="mb-6 rounded-lg border bg-white p-4 shadow-sm">
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-            {/* Search */}
+        <section className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="mb-5 flex items-center justify-between">
+            <div>
+              <h2 className="text-sm font-semibold text-slate-900">
+                Filters
+              </h2>
+
+              <p className="mt-0.5 text-xs text-slate-500">
+                Narrow feedback by customer, sentiment, theme,
+                channel, or date.
+              </p>
+            </div>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <div>
               <label
                 htmlFor="search"
-                className="mb-1 block text-sm font-medium text-gray-700"
+                className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500"
               >
                 Search
               </label>
@@ -553,15 +701,14 @@ export default function FeedbackPage() {
                   setSearch(event.target.value)
                 }
                 placeholder="Search feedback..."
-                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 outline-none placeholder:text-gray-400 focus:border-gray-500"
+                className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
               />
             </div>
 
-            {/* Sentiment */}
             <div>
               <label
                 htmlFor="sentiment"
-                className="mb-1 block text-sm font-medium text-gray-700"
+                className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500"
               >
                 Sentiment
               </label>
@@ -572,31 +719,19 @@ export default function FeedbackPage() {
                 onChange={(event) =>
                   setSentiment(event.target.value)
                 }
-                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:border-gray-500"
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
               >
-                <option value="">
-                  All sentiments
-                </option>
-
-                <option value="POS">
-                  Positive
-                </option>
-
-                <option value="NEU">
-                  Neutral
-                </option>
-
-                <option value="NEG">
-                  Negative
-                </option>
+                <option value="">All sentiments</option>
+                <option value="POS">Positive</option>
+                <option value="NEU">Neutral</option>
+                <option value="NEG">Negative</option>
               </select>
             </div>
 
-            {/* Status */}
             <div>
               <label
                 htmlFor="status"
-                className="mb-1 block text-sm font-medium text-gray-700"
+                className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500"
               >
                 Status
               </label>
@@ -607,31 +742,19 @@ export default function FeedbackPage() {
                 onChange={(event) =>
                   setStatus(event.target.value)
                 }
-                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:border-gray-500"
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
               >
-                <option value="">
-                  All statuses
-                </option>
-
-                <option value="NEW">
-                  New
-                </option>
-
-                <option value="REVIEWED">
-                  Reviewed
-                </option>
-
-                <option value="ACTIONED">
-                  Actioned
-                </option>
+                <option value="">All statuses</option>
+                <option value="NEW">New</option>
+                <option value="REVIEWED">Reviewed</option>
+                <option value="ACTIONED">Actioned</option>
               </select>
             </div>
 
-            {/* Channel */}
             <div>
               <label
                 htmlFor="channel"
-                className="mb-1 block text-sm font-medium text-gray-700"
+                className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500"
               >
                 Channel
               </label>
@@ -642,149 +765,246 @@ export default function FeedbackPage() {
                 onChange={(event) =>
                   setChannel(event.target.value)
                 }
-                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:border-gray-500"
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
               >
-                <option value="">
-                  All channels
-                </option>
-
-                <option value="Support">
-                  Support
-                </option>
-
-                <option value="App Store">
-                  App Store
-                </option>
-
-                <option value="NPS">
-                  NPS
-                </option>
-
-                <option value="Sales">
-                  Sales
-                </option>
-
-                <option value="Community">
-                  Community
-                </option>
+                <option value="">All channels</option>
+                <option value="Support">Support</option>
+                <option value="App Store">App Store</option>
+                <option value="NPS">NPS</option>
+                <option value="Sales">Sales</option>
+                <option value="Community">Community</option>
               </select>
+            </div>
+
+            <div>
+              <label
+                htmlFor="theme"
+                className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500"
+              >
+                Theme
+              </label>
+
+              <select
+                id="theme"
+                value={themeId}
+                onChange={(event) =>
+                  setThemeId(event.target.value)
+                }
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
+              >
+                <option value="">All themes</option>
+
+                {themes.map(
+                  (theme: {
+                    id: string;
+                    name: string;
+                  }) => (
+                    <option
+                      key={theme.id}
+                      value={theme.id}
+                    >
+                      {theme.name}
+                    </option>
+                  )
+                )}
+              </select>
+            </div>
+
+            <div>
+              <label
+                htmlFor="dateFrom"
+                className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500"
+              >
+                Date From
+              </label>
+
+              <input
+                id="dateFrom"
+                type="date"
+                value={dateFrom}
+                onChange={(event) =>
+                  setDateFrom(event.target.value)
+                }
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
+              />
+            </div>
+
+            <div>
+              <label
+                htmlFor="dateTo"
+                className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500"
+              >
+                Date To
+              </label>
+
+              <input
+                id="dateTo"
+                type="date"
+                value={dateTo}
+                onChange={(event) =>
+                  setDateTo(event.target.value)
+                }
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
+              />
             </div>
           </div>
 
-          <div className="mt-4 flex gap-2">
+          <div className="mt-5 flex flex-wrap gap-2">
             <button
               onClick={handleFilter}
-              className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-gray-800"
+              className="rounded-lg bg-slate-950 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800"
             >
               Apply Filters
             </button>
 
             <button
               onClick={handleClearFilters}
-              className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50"
+              className="rounded-lg border border-slate-200 bg-white px-5 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 hover:text-slate-900"
             >
-              Clear
+              Clear Filters
             </button>
           </div>
-        </div>
+        </section>
 
         {/* Error */}
         {error && (
-          <div className="mb-6 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+          <div className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
             {error}
           </div>
         )}
 
         {/* Loading */}
         {loading && (
-          <div className="rounded-lg border bg-white p-6 text-sm text-gray-600">
-            Loading feedback...
+          <div className="rounded-2xl border border-slate-200 bg-white p-10 text-center shadow-sm">
+            <p className="text-sm font-medium text-slate-700">
+              Loading feedback...
+            </p>
+
+            <p className="mt-1 text-xs text-slate-400">
+              Fetching the latest feedback records.
+            </p>
           </div>
         )}
 
         {/* Table */}
         {!loading && (
-          <div className="overflow-hidden rounded-lg border bg-white shadow-sm">
-            <div className="border-b px-6 py-4">
-              <p className="text-sm text-gray-600">
-                Showing {feedback.length} of {total} feedback
-                records
-              </p>
+          <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <div className="flex flex-col justify-between gap-3 border-b border-slate-200 px-6 py-5 sm:flex-row sm:items-center">
+              <div>
+                <h2 className="text-sm font-semibold text-slate-900">
+                  Feedback Records
+                </h2>
+
+                <p className="mt-1 text-xs text-slate-500">
+                  Showing{" "}
+                  <span className="font-semibold text-slate-700">
+                    {feedback.length}
+                  </span>{" "}
+                  of{" "}
+                  <span className="font-semibold text-slate-700">
+                    {total}
+                  </span>{" "}
+                  records
+                </p>
+              </div>
+
+              <div className="rounded-full bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-600">
+                Page {page} of {totalPages}
+              </div>
             </div>
 
             <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
+              <table className="min-w-full">
+                <thead>
+                  <tr className="border-b border-slate-200 bg-slate-50/80">
+                    <th className="px-6 py-3.5 text-left text-[10px] font-bold uppercase tracking-widest text-slate-500">
                       Feedback
                     </th>
 
-                    <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
+                    <th className="px-6 py-3.5 text-left text-[10px] font-bold uppercase tracking-widest text-slate-500">
                       Channel
                     </th>
 
-                    <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
+                    <th className="px-6 py-3.5 text-left text-[10px] font-bold uppercase tracking-widest text-slate-500">
                       Sentiment
                     </th>
 
-                    <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
+                    <th className="px-6 py-3.5 text-left text-[10px] font-bold uppercase tracking-widest text-slate-500">
                       Status
                     </th>
 
-                    <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
+                    <th className="px-6 py-3.5 text-left text-[10px] font-bold uppercase tracking-widest text-slate-500">
                       Themes
                     </th>
 
-                    <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
+                    <th className="px-6 py-3.5 text-left text-[10px] font-bold uppercase tracking-widest text-slate-500">
                       Date
                     </th>
                   </tr>
                 </thead>
 
-                <tbody className="divide-y divide-gray-200">
+                <tbody className="divide-y divide-slate-100">
                   {feedback.map((item) => (
                     <tr
                       key={item.id}
                       onClick={() => {
                         window.location.href = `/feedback/${item.id}`;
                       }}
-                      className="cursor-pointer hover:bg-gray-50"
+                      className="cursor-pointer transition hover:bg-slate-50"
                     >
                       {/* Feedback */}
-                      <td className="max-w-md px-6 py-4">
-                        <p className="text-sm text-gray-900">
+                      <td className="max-w-md px-6 py-5">
+                        <p className="line-clamp-2 text-sm font-medium leading-5 text-slate-900">
                           {item.content}
                         </p>
 
-                        {item.customerLabel && (
-                          <p className="mt-1 text-xs text-gray-500">
-                            {item.customerLabel}
-                          </p>
-                        )}
+                        <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1">
+                          {item.customerLabel && (
+                            <span className="text-xs text-slate-500">
+                              {item.customerLabel}
+                            </span>
+                          )}
+
+                          {item.sourceRef && (
+                            <>
+                              <span className="text-slate-300">
+                                •
+                              </span>
+
+                              <span className="text-xs text-slate-400">
+                                {item.sourceRef}
+                              </span>
+                            </>
+                          )}
+                        </div>
                       </td>
 
                       {/* Channel */}
-                      <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-700">
-                        {item.channel}
+                      <td className="whitespace-nowrap px-6 py-5">
+                        <span className="inline-flex rounded-lg bg-slate-100 px-2.5 py-1.5 text-xs font-medium text-slate-700">
+                          {item.channel}
+                        </span>
                       </td>
 
                       {/* Sentiment */}
-                      <td className="whitespace-nowrap px-6 py-4">
+                      <td className="whitespace-nowrap px-6 py-5">
                         <span
-                          className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${getSentimentBadge(
+                          className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${getSentimentBadge(
                             item.sentiment
                           )}`}
                         >
-                          {item.sentiment ?? "—"}
+                          <span className="mr-1.5 h-1.5 w-1.5 rounded-full bg-current" />
+                          {getSentimentLabel(item.sentiment)}
                         </span>
                       </td>
 
                       {/* Status */}
-                      <td className="whitespace-nowrap px-6 py-4">
+                      <td className="whitespace-nowrap px-6 py-5">
                         <select
                           value={item.status}
-                          disabled={updatingId === item.id}
+                          disabled={
+                            updatingId === item.id
+                          }
                           onClick={(event) => {
                             event.stopPropagation();
                           }}
@@ -799,18 +1019,14 @@ export default function FeedbackPage() {
                                 | "ACTIONED"
                             );
                           }}
-                          className={`rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium outline-none focus:border-gray-500 disabled:cursor-not-allowed disabled:opacity-50 ${getStatusBadge(
+                          className={`rounded-lg border px-3 py-2 text-xs font-semibold outline-none transition disabled:cursor-not-allowed disabled:opacity-50 ${getStatusBadge(
                             item.status
                           )}`}
                         >
-                          <option value="NEW">
-                            New
-                          </option>
-
+                          <option value="NEW">New</option>
                           <option value="REVIEWED">
                             Reviewed
                           </option>
-
                           <option value="ACTIONED">
                             Actioned
                           </option>
@@ -818,26 +1034,36 @@ export default function FeedbackPage() {
                       </td>
 
                       {/* Themes */}
-                      <td className="px-6 py-4">
-                        <div className="flex flex-wrap gap-1">
-                          {item.feedbackThemes.map(
-                            (itemTheme) => (
-                              <span
-                                key={itemTheme.theme.id}
-                                className="rounded-full bg-gray-100 px-2 py-1 text-xs text-gray-700"
-                              >
-                                {itemTheme.theme.name}
-                              </span>
+                      <td className="px-6 py-5">
+                        <div className="flex max-w-xs flex-wrap gap-1.5">
+                          {item.feedbackThemes.length > 0 ? (
+                            item.feedbackThemes.map(
+                              (itemTheme) => (
+                                <span
+                                  key={itemTheme.theme.id}
+                                  className="inline-flex rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600"
+                                >
+                                  {itemTheme.theme.name}
+                                </span>
+                              )
                             )
+                          ) : (
+                            <span className="text-xs text-slate-400">
+                              —
+                            </span>
                           )}
                         </div>
                       </td>
 
                       {/* Date */}
-                      <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-500">
+                      <td className="whitespace-nowrap px-6 py-5 text-xs font-medium text-slate-500">
                         {new Date(
                           item.createdAt
-                        ).toLocaleDateString()}
+                        ).toLocaleDateString("en-IN", {
+                          day: "2-digit",
+                          month: "short",
+                          year: "numeric",
+                        })}
                       </td>
                     </tr>
                   ))}
@@ -846,9 +1072,22 @@ export default function FeedbackPage() {
                     <tr>
                       <td
                         colSpan={6}
-                        className="px-6 py-10 text-center text-sm text-gray-500"
+                        className="px-6 py-16 text-center"
                       >
-                        No feedback matches your filters.
+                        <div className="mx-auto max-w-sm">
+                          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-slate-400">
+                            ≡
+                          </div>
+
+                          <p className="mt-4 text-sm font-semibold text-slate-900">
+                            No feedback found
+                          </p>
+
+                          <p className="mt-1 text-xs leading-5 text-slate-500">
+                            Try adjusting your filters or add
+                            new feedback to the workspace.
+                          </p>
+                        </div>
                       </td>
                     </tr>
                   )}
@@ -857,40 +1096,45 @@ export default function FeedbackPage() {
             </div>
 
             {/* Pagination */}
-            <div className="flex items-center justify-between border-t px-6 py-4">
-              <p className="text-sm text-gray-600">
-                Page {page} of {totalPages}
+            <div className="flex flex-col gap-3 border-t border-slate-200 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-xs font-medium text-slate-500">
+                Page{" "}
+                <span className="font-semibold text-slate-700">
+                  {page}
+                </span>{" "}
+                of{" "}
+                <span className="font-semibold text-slate-700">
+                  {totalPages}
+                </span>
               </p>
 
               <div className="flex gap-2">
                 <button
                   onClick={() =>
                     setPage(
-                      (currentPage) =>
-                        currentPage - 1
+                      (currentPage) => currentPage - 1
                     )
                   }
                   disabled={page === 1}
-                  className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
                 >
-                  Previous
+                  ← Previous
                 </button>
 
                 <button
                   onClick={() =>
                     setPage(
-                      (currentPage) =>
-                        currentPage + 1
+                      (currentPage) => currentPage + 1
                     )
                   }
                   disabled={page >= totalPages}
-                  className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
                 >
-                  Next
+                  Next →
                 </button>
               </div>
             </div>
-          </div>
+          </section>
         )}
       </div>
     </main>
@@ -901,30 +1145,48 @@ function getSentimentBadge(
   sentiment: Feedback["sentiment"]
 ) {
   if (sentiment === "POS") {
-    return "bg-green-100 text-green-700";
+    return "bg-emerald-50 text-emerald-700";
   }
 
   if (sentiment === "NEG") {
-    return "bg-red-100 text-red-700";
+    return "bg-red-50 text-red-700";
   }
 
   if (sentiment === "NEU") {
-    return "bg-gray-100 text-gray-700";
+    return "bg-slate-100 text-slate-600";
   }
 
-  return "bg-gray-100 text-gray-500";
+  return "bg-slate-100 text-slate-400";
+}
+
+function getSentimentLabel(
+  sentiment: Feedback["sentiment"]
+) {
+  if (sentiment === "POS") {
+    return "Positive";
+  }
+
+  if (sentiment === "NEG") {
+    return "Negative";
+  }
+
+  if (sentiment === "NEU") {
+    return "Neutral";
+  }
+
+  return "Unclassified";
 }
 
 function getStatusBadge(
   status: Feedback["status"]
 ) {
   if (status === "NEW") {
-    return "bg-blue-100 text-blue-700";
+    return "border-blue-200 bg-blue-50 text-blue-700";
   }
 
   if (status === "REVIEWED") {
-    return "bg-yellow-100 text-yellow-700";
+    return "border-amber-200 bg-amber-50 text-amber-700";
   }
 
-  return "bg-green-100 text-green-700";
+  return "border-emerald-200 bg-emerald-50 text-emerald-700";
 }

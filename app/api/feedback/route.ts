@@ -46,6 +46,9 @@ const querySchema = z.object({
   status: z.enum(["NEW", "REVIEWED", "ACTIONED"]).optional(),
   sentiment: z.enum(["POS", "NEU", "NEG"]).optional(),
   channel: z.string().trim().optional(),
+  themeId: z.string().optional(),
+  dateFrom: z.string().optional(),
+  dateTo: z.string().optional(),
 });
 
 export async function GET(request: Request) {
@@ -68,6 +71,9 @@ export async function GET(request: Request) {
       status: searchParams.get("status") ?? undefined,
       sentiment: searchParams.get("sentiment") ?? undefined,
       channel: searchParams.get("channel") ?? undefined,
+      themeId: searchParams.get("themeId") ?? undefined,
+      dateFrom: searchParams.get("dateFrom") ?? undefined,
+      dateTo: searchParams.get("dateTo") ?? undefined,
     });
 
     if (!queryResult.success) {
@@ -87,6 +93,9 @@ export async function GET(request: Request) {
       status,
       sentiment,
       channel,
+      themeId,
+      dateFrom,
+      dateTo,
     } = queryResult.data;
 
     const where = {
@@ -101,11 +110,50 @@ export async function GET(request: Request) {
           }
         : {}),
 
-      ...(status ? { status } : {}),
+      ...(status
+        ? {
+            status,
+          }
+        : {}),
 
-      ...(sentiment ? { sentiment } : {}),
+      ...(sentiment
+        ? {
+            sentiment,
+          }
+        : {}),
 
-      ...(channel ? { channel } : {}),
+      ...(channel
+        ? {
+            channel,
+          }
+        : {}),
+
+      ...(themeId
+        ? {
+            feedbackThemes: {
+              some: {
+                themeId,
+              },
+            },
+          }
+        : {}),
+
+      ...(dateFrom || dateTo
+        ? {
+            createdAt: {
+              ...(dateFrom
+                ? {
+                    gte: new Date(`${dateFrom}T00:00:00.000Z`),
+                  }
+                : {}),
+              ...(dateTo
+                ? {
+                    lte: new Date(`${dateTo}T23:59:59.999Z`),
+                  }
+                : {}),
+            },
+          }
+        : {}),
     };
 
     const skip = (page - 1) * limit;
