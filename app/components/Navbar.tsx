@@ -5,32 +5,27 @@ import { usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 
 const navigation = [
-  {
-    name: "Dashboard",
-    href: "/dashboard",
-  },
-  {
-    name: "Feedback",
-    href: "/feedback",
-  },
-  {
-    name: "Themes",
-    href: "/themes",
-  },
+  { name: "Dashboard", href: "/dashboard" },
+  { name: "Feedback", href: "/feedback" },
+  { name: "Themes", href: "/themes" },
+  { name: "Reports", href: "/reports" },
+  { name: "Ask LOOP", href: "/ask" },
 ];
 
 export default function Navbar() {
   const pathname = usePathname();
   const { data: session } = useSession();
 
+  const isAdmin = session?.user?.role === "ADMIN";
+
+  const visibleNavigation = isAdmin
+    ? [...navigation, { name: "Workspace", href: "/settings" }]
+    : navigation;
+
   return (
     <header className="sticky top-0 z-50 border-b border-slate-200 bg-white/95 backdrop-blur">
       <div className="mx-auto flex h-16 max-w-[1600px] items-center justify-between px-6 lg:px-10">
-        {/* Brand */}
-        <Link
-          href="/dashboard"
-          className="flex items-center gap-3"
-        >
+        <Link href="/dashboard" className="flex items-center gap-3">
           <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-950 text-sm font-bold text-white">
             L
           </div>
@@ -46,10 +41,9 @@ export default function Navbar() {
           </div>
         </Link>
 
-        {/* Navigation + User */}
         <div className="flex items-center gap-1">
           <nav className="flex items-center gap-1">
-            {navigation.map((item) => {
+            {visibleNavigation.map((item) => {
               const isActive =
                 pathname === item.href ||
                 pathname.startsWith(`${item.href}/`);
@@ -72,7 +66,6 @@ export default function Navbar() {
 
           <div className="mx-2 hidden h-6 w-px bg-slate-200 sm:block" />
 
-          {/* User information */}
           <div className="hidden text-right sm:block">
             <p className="text-xs font-semibold text-slate-900">
               {session?.user?.name ?? "User"}
@@ -83,14 +76,10 @@ export default function Navbar() {
             </p>
           </div>
 
-          {/* Avatar */}
           <div className="ml-1 flex h-9 w-9 items-center justify-center rounded-full bg-slate-900 text-xs font-semibold text-white">
-            {session?.user?.name
-              ?.charAt(0)
-              .toUpperCase() ?? "U"}
+            {session?.user?.name?.charAt(0).toUpperCase() ?? "U"}
           </div>
 
-          {/* Logout */}
           <button
             type="button"
             onClick={() => signOut({ callbackUrl: "/login" })}

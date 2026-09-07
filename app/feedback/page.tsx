@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSession } from "next-auth/react";
 import { useSearchParams } from "next/navigation";
+import Navbar from "@/app/components/Navbar";
 
 type FeedbackTheme = {
   confidence: number;
@@ -36,27 +37,50 @@ type FeedbackResponse = {
   };
 };
 
+type ThemeOption = {
+  id: string;
+  name: string;
+};
+
 export default function FeedbackPage() {
+  const { data: session } = useSession();
+  const searchParams = useSearchParams();
+
+  const role = session?.user?.role;
+
+  const canManageFeedback =
+    role === "ADMIN" || role === "ANALYST";
+
+  const roleLabel =
+    role === "ADMIN"
+      ? "Administrator"
+      : role === "ANALYST"
+        ? "Analyst"
+        : "Viewer";
+
+  const roleDescription =
+    role === "ADMIN"
+      ? "Full workspace access and feedback management."
+      : role === "ANALYST"
+        ? "Analyze feedback and manage customer workflows."
+        : "Read-only access to customer intelligence.";
+
   const [feedback, setFeedback] = useState<Feedback[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-
-  const searchParams = useSearchParams();
-  const { data: session } = useSession();
 
   const [search, setSearch] = useState("");
   const [sentiment, setSentiment] = useState("");
   const [status, setStatus] = useState("");
   const [channel, setChannel] = useState("");
   const [themeId, setThemeId] = useState(
-    searchParams.get("themeId") ?? ""
+    searchParams.get("themeId") ?? "",
   );
+
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
 
-  const [themes, setThemes] = useState<
-    { id: string; name: string }[]
-  >([]);
+  const [themes, setThemes] = useState<ThemeOption[]>([]);
 
   const [page, setPage] = useState(1);
   const [filterVersion, setFilterVersion] = useState(0);
@@ -64,10 +88,10 @@ export default function FeedbackPage() {
   const [total, setTotal] = useState(0);
 
   const [updatingId, setUpdatingId] = useState<string | null>(
-    null
+    null,
   );
 
-  // Add Feedback state
+  // Add Feedback
   const [showAddForm, setShowAddForm] = useState(false);
   const [newContent, setNewContent] = useState("");
   const [newChannel, setNewChannel] = useState("Support");
@@ -77,7 +101,7 @@ export default function FeedbackPage() {
   const [createError, setCreateError] = useState("");
   const [createSuccess, setCreateSuccess] = useState("");
 
-  // CSV Import state
+  // CSV Import
   const [showImportForm, setShowImportForm] = useState(false);
   const [csvFile, setCsvFile] = useState<File | null>(null);
   const [importing, setImporting] = useState(false);
@@ -122,10 +146,8 @@ export default function FeedbackPage() {
         params.set("dateTo", dateTo);
       }
 
-      const queryString = params.toString();
-
       const response = await fetch(
-        `/api/feedback?${queryString}`
+        `/api/feedback?${params.toString()}`,
       );
 
       if (!response.ok) {
@@ -139,7 +161,7 @@ export default function FeedbackPage() {
       setTotal(data.pagination.total);
     } catch (error) {
       console.error(error);
-      setError("Unable to load feedback");
+      setError("Unable to load feedback.");
     } finally {
       setLoading(false);
     }
@@ -187,7 +209,7 @@ export default function FeedbackPage() {
   }
 
   const createFeedback = async (
-    event: React.FormEvent<HTMLFormElement>
+    event: React.FormEvent<HTMLFormElement>,
   ) => {
     event.preventDefault();
 
@@ -213,7 +235,7 @@ export default function FeedbackPage() {
 
       if (!response.ok) {
         throw new Error(
-          data.error || "Failed to create feedback"
+          data.error || "Failed to create feedback",
         );
       }
 
@@ -231,7 +253,7 @@ export default function FeedbackPage() {
       setCreateError(
         error instanceof Error
           ? error.message
-          : "Something went wrong"
+          : "Something went wrong",
       );
     } finally {
       setCreating(false);
@@ -265,7 +287,7 @@ export default function FeedbackPage() {
 
       if (!response.ok) {
         throw new Error(
-          data.error || "Failed to import CSV"
+          data.error || "Failed to import CSV",
         );
       }
 
@@ -275,7 +297,7 @@ export default function FeedbackPage() {
       setImportSuccess(
         `${data.imported} feedback record${
           data.imported === 1 ? "" : "s"
-        } imported successfully.`
+        } imported successfully.`,
       );
 
       setPage(1);
@@ -284,7 +306,7 @@ export default function FeedbackPage() {
       setImportError(
         error instanceof Error
           ? error.message
-          : "Something went wrong while importing CSV"
+          : "Something went wrong while importing CSV",
       );
     } finally {
       setImporting(false);
@@ -293,8 +315,12 @@ export default function FeedbackPage() {
 
   async function updateStatus(
     feedbackId: string,
-    newStatus: "NEW" | "REVIEWED" | "ACTIONED"
+    newStatus: "NEW" | "REVIEWED" | "ACTIONED",
   ) {
+    if (!canManageFeedback) {
+      return;
+    }
+
     try {
       setUpdatingId(feedbackId);
 
@@ -313,7 +339,7 @@ export default function FeedbackPage() {
 
       if (!response.ok) {
         throw new Error(
-          data.error || "Failed to update feedback"
+          data.error || "Failed to update feedback",
         );
       }
 
@@ -321,8 +347,8 @@ export default function FeedbackPage() {
         currentFeedback.map((item) =>
           item.id === feedbackId
             ? { ...item, status: newStatus }
-            : item
-        )
+            : item,
+        ),
       );
     } catch (error) {
       console.error(error);
@@ -330,586 +356,542 @@ export default function FeedbackPage() {
       setError(
         error instanceof Error
           ? error.message
-          : "Unable to update feedback"
+          : "Unable to update feedback",
       );
     } finally {
       setUpdatingId(null);
     }
   }
 
-  const canManageFeedback =
-    session?.user?.role === "ADMIN" ||
-    session?.user?.role === "ANALYST";
+  const activeFilterCount = useMemo(() => {
+    return [
+      search,
+      sentiment,
+      status,
+      channel,
+      themeId,
+      dateFrom,
+      dateTo,
+    ].filter(Boolean).length;
+  }, [
+    search,
+    sentiment,
+    status,
+    channel,
+    themeId,
+    dateFrom,
+    dateTo,
+  ]);
 
   return (
-    <main className="min-h-screen bg-slate-50">
-      {/* Top navigation */}
-      <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 backdrop-blur">
-        <div className="mx-auto flex h-16 max-w-[1600px] items-center justify-between px-6 lg:px-10">
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-950 text-sm font-bold text-white">
-              L
-            </div>
+    <main className="min-h-screen bg-[#f6f8fb] text-slate-950">
+      <Navbar />
 
-            <div>
-              <p className="text-base font-bold tracking-tight text-slate-950">
-                LOOP
-              </p>
-
-              <p className="hidden text-[10px] uppercase tracking-widest text-slate-400 sm:block">
-                Customer Intelligence
-              </p>
-            </div>
-          </div>
-
-          <nav className="flex items-center gap-1">
-            <a
-              href="/dashboard"
-              className="rounded-lg px-3.5 py-2 text-sm font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
-            >
-              Dashboard
-            </a>
-
-            <a
-              href="/feedback"
-              className="rounded-lg bg-slate-950 px-3.5 py-2 text-sm font-semibold text-white"
-            >
-              Feedback
-            </a>
-
-            <a
-              href="/themes"
-              className="hidden rounded-lg px-3.5 py-2 text-sm font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 sm:block"
-            >
-              Themes
-            </a>
-
-            <div className="mx-2 hidden h-6 w-px bg-slate-200 sm:block" />
-
-            <div className="hidden text-right sm:block">
-              <p className="text-xs font-semibold text-slate-900">
-                {session?.user?.name}
-              </p>
-
-              <p className="text-[10px] text-slate-500">
-                {session?.user?.role}
-              </p>
-            </div>
-
-            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-900 text-xs font-semibold text-white">
-              {session?.user?.name
-                ?.charAt(0)
-                .toUpperCase() ?? "U"}
-            </div>
-          </nav>
-        </div>
-      </header>
-
-      <div className="mx-auto max-w-[1600px] px-6 py-8 lg:px-10">
+      <div className="mx-auto max-w-[1600px] px-5 py-7 sm:px-6 lg:px-10 lg:py-9">
         {/* Page heading */}
-        <section className="mb-8">
-          <div className="flex flex-col justify-between gap-5 md:flex-row md:items-end">
+        <section className="mb-7">
+          <div className="flex flex-col justify-between gap-6 lg:flex-row lg:items-end">
             <div>
               <div className="mb-3 flex items-center gap-2">
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                <span className="h-2 w-2 rounded-full bg-emerald-500 shadow-[0_0_0_4px_rgba(16,185,129,0.10)]" />
 
-                <span className="text-xs font-semibold uppercase tracking-widest text-slate-500">
+                <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">
                   Customer Feedback
                 </span>
               </div>
 
-              <h1 className="text-3xl font-bold tracking-tight text-slate-950">
-                Feedback Inbox
-              </h1>
+              <div className="flex flex-wrap items-center gap-3">
+                <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">
+                  Feedback Inbox
+                </h1>
+
+                <span
+                  className={`rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-wider ${
+                    role === "ADMIN"
+                      ? "border-violet-200 bg-violet-50 text-violet-700"
+                      : role === "ANALYST"
+                        ? "border-blue-200 bg-blue-50 text-blue-700"
+                        : "border-slate-200 bg-white text-slate-600"
+                  }`}
+                >
+                  {roleLabel}
+                </span>
+              </div>
 
               <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
-                Review, filter, and manage customer feedback
-                across your workspace.
+                Review customer feedback, understand sentiment,
+                explore themes, and manage workflow across your
+                workspace.
+              </p>
+
+              <p className="mt-2 text-xs font-medium text-slate-400">
+                {roleDescription}
               </p>
             </div>
 
-            <div className="rounded-xl border border-slate-200 bg-white px-5 py-3 shadow-sm">
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">
-                Total Feedback
-              </p>
+            {/* Summary */}
+            <div className="grid grid-cols-2 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+              <div className="border-r border-slate-200 px-5 py-4">
+                <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-slate-400">
+                  Total
+                </p>
 
-              <p className="mt-1 text-xl font-bold text-slate-950">
-                {total}
-              </p>
+                <p className="mt-1 text-2xl font-bold tracking-tight text-slate-950">
+                  {total}
+                </p>
+              </div>
+
+              <div className="px-5 py-4">
+                <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-slate-400">
+                  Filters
+                </p>
+
+                <p className="mt-1 text-2xl font-bold tracking-tight text-slate-950">
+                  {activeFilterCount}
+                </p>
+              </div>
             </div>
           </div>
         </section>
 
-        {/* Actions */}
+        {/* Management */}
         {canManageFeedback && (
           <section className="mb-6">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <p className="text-sm font-semibold text-slate-900">
-                  Feedback Management
-                </p>
+            <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+              <div className="flex flex-col justify-between gap-4 p-5 sm:flex-row sm:items-center sm:px-6">
+                <div className="flex items-start gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-700">
+                    +
+                  </div>
 
-                <p className="mt-0.5 text-xs text-slate-500">
-                  Add individual feedback or import multiple
-                  records.
-                </p>
-              </div>
+                  <div>
+                    <p className="text-sm font-bold text-slate-950">
+                      Feedback Management
+                    </p>
 
-              <div className="flex flex-wrap gap-2">
-                <button
-                  onClick={() => {
-                    setShowAddForm((value) => !value);
-                    setShowImportForm(false);
-                    setCreateError("");
-                    setImportError("");
-                  }}
-                  className="rounded-lg bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800"
-                >
-                  {showAddForm
-                    ? "Cancel"
-                    : "+ Add Feedback"}
-                </button>
-
-                <button
-                  onClick={() => {
-                    setShowImportForm((value) => !value);
-                    setShowAddForm(false);
-                    setImportError("");
-                    setCreateError("");
-                  }}
-                  className="rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
-                >
-                  {showImportForm
-                    ? "Cancel Import"
-                    : "Import CSV"}
-                </button>
-              </div>
-            </div>
-
-            {createSuccess && (
-              <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">
-                {createSuccess}
-              </div>
-            )}
-
-            {importSuccess && (
-              <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">
-                {importSuccess}
-              </div>
-            )}
-
-            {/* Add Feedback Form */}
-            {showAddForm && (
-              <form
-                onSubmit={createFeedback}
-                className="mt-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
-              >
-                <div className="mb-5">
-                  <h2 className="text-lg font-semibold text-slate-950">
-                    Add Feedback
-                  </h2>
-
-                  <p className="mt-1 text-sm text-slate-500">
-                    Add a new customer feedback record to the
-                    workspace.
-                  </p>
+                    <p className="mt-0.5 text-xs text-slate-500">
+                      Add individual records or import feedback
+                      in bulk.
+                    </p>
+                  </div>
                 </div>
 
-                <div className="grid gap-5 md:grid-cols-2">
-                  <div className="md:col-span-2">
-                    <label className="mb-1.5 block text-sm font-medium text-slate-700">
-                      Feedback
-                    </label>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowAddForm((value) => !value);
+                      setShowImportForm(false);
+                      setCreateError("");
+                      setImportError("");
+                    }}
+                    className="rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-slate-800"
+                  >
+                    {showAddForm
+                      ? "Close Form"
+                      : "+ Add Feedback"}
+                  </button>
 
-                    <textarea
-                      value={newContent}
-                      onChange={(event) =>
-                        setNewContent(event.target.value)
-                      }
-                      required
-                      rows={4}
-                      className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
-                      placeholder="Enter customer feedback..."
-                    />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowImportForm((value) => !value);
+                      setShowAddForm(false);
+                      setImportError("");
+                      setCreateError("");
+                    }}
+                    className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+                  >
+                    {showImportForm
+                      ? "Close Import"
+                      : "Import CSV"}
+                  </button>
+                </div>
+              </div>
+
+              {createSuccess && (
+                <div className="border-t border-emerald-100 bg-emerald-50 px-5 py-3 text-sm font-medium text-emerald-700 sm:px-6">
+                  ✓ {createSuccess}
+                </div>
+              )}
+
+              {importSuccess && (
+                <div className="border-t border-emerald-100 bg-emerald-50 px-5 py-3 text-sm font-medium text-emerald-700 sm:px-6">
+                  ✓ {importSuccess}
+                </div>
+              )}
+
+              {/* Add Form */}
+              {showAddForm && (
+                <form
+                  onSubmit={createFeedback}
+                  className="border-t border-slate-200 bg-slate-50/70 p-5 sm:p-6"
+                >
+                  <div className="mb-5">
+                    <h2 className="text-lg font-bold">
+                      Add customer feedback
+                    </h2>
+
+                    <p className="mt-1 text-xs text-slate-500">
+                      Create a new feedback record for this
+                      workspace.
+                    </p>
                   </div>
 
-                  <div>
-                    <label className="mb-1.5 block text-sm font-medium text-slate-700">
-                      Channel
-                    </label>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="md:col-span-2">
+                      <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">
+                        Feedback
+                      </label>
 
-                    <select
-                      value={newChannel}
-                      onChange={(event) =>
-                        setNewChannel(event.target.value)
-                      }
-                      className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
-                    >
-                      <option value="Support">Support</option>
-                      <option value="App Store">App Store</option>
-                      <option value="NPS">NPS</option>
-                      <option value="Sales">Sales</option>
-                      <option value="Community">Community</option>
-                    </select>
+                      <textarea
+                        value={newContent}
+                        onChange={(event) =>
+                          setNewContent(event.target.value)
+                        }
+                        required
+                        rows={4}
+                        placeholder="Enter the customer's feedback..."
+                        className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">
+                        Channel
+                      </label>
+
+                      <select
+                        value={newChannel}
+                        onChange={(event) =>
+                          setNewChannel(event.target.value)
+                        }
+                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
+                      >
+                        <option value="Support">
+                          Support
+                        </option>
+
+                        <option value="App Store">
+                          App Store
+                        </option>
+
+                        <option value="NPS">NPS</option>
+
+                        <option value="Sales">Sales</option>
+
+                        <option value="Community">
+                          Community
+                        </option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">
+                        Customer Label
+                      </label>
+
+                      <input
+                        type="text"
+                        value={newCustomerLabel}
+                        onChange={(event) =>
+                          setNewCustomerLabel(
+                            event.target.value,
+                          )
+                        }
+                        placeholder="Optional"
+                        className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm outline-none placeholder:text-slate-400 focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">
+                        Source Reference
+                      </label>
+
+                      <input
+                        type="text"
+                        value={newSourceRef}
+                        onChange={(event) =>
+                          setNewSourceRef(event.target.value)
+                        }
+                        placeholder="Optional"
+                        className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm outline-none placeholder:text-slate-400 focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
+                      />
+                    </div>
+
+                    {createError && (
+                      <p className="text-sm font-medium text-red-600 md:col-span-2">
+                        {createError}
+                      </p>
+                    )}
+
+                    <div className="md:col-span-2">
+                      <button
+                        type="submit"
+                        disabled={creating}
+                        className="rounded-xl bg-slate-950 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {creating
+                          ? "Adding..."
+                          : "Add Feedback"}
+                      </button>
+                    </div>
+                  </div>
+                </form>
+              )}
+
+              {/* Import Form */}
+              {showImportForm && (
+                <div className="border-t border-slate-200 bg-slate-50/70 p-5 sm:p-6">
+                  <div className="mb-5">
+                    <h2 className="text-lg font-bold">
+                      Import feedback
+                    </h2>
+
+                    <p className="mt-1 text-xs text-slate-500">
+                      Upload a CSV with{" "}
+                      <span className="font-semibold text-slate-700">
+                        content, channel, customerLabel,
+                        sourceRef
+                      </span>
+                    </p>
                   </div>
 
-                  <div>
-                    <label className="mb-1.5 block text-sm font-medium text-slate-700">
-                      Customer Label
-                    </label>
+                  <input
+                    type="file"
+                    accept=".csv,text/csv"
+                    onChange={(event) => {
+                      setCsvFile(
+                        event.target.files?.[0] ?? null,
+                      );
 
-                    <input
-                      type="text"
-                      value={newCustomerLabel}
-                      onChange={(event) =>
-                        setNewCustomerLabel(
-                          event.target.value
-                        )
-                      }
-                      className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
-                      placeholder="Optional"
-                    />
-                  </div>
+                      setImportError("");
+                      setImportSuccess("");
+                    }}
+                    className="block w-full rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-700"
+                  />
 
-                  <div>
-                    <label className="mb-1.5 block text-sm font-medium text-slate-700">
-                      Source Reference
-                    </label>
-
-                    <input
-                      type="text"
-                      value={newSourceRef}
-                      onChange={(event) =>
-                        setNewSourceRef(event.target.value)
-                      }
-                      className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
-                      placeholder="Optional"
-                    />
-                  </div>
-
-                  {createError && (
-                    <p className="text-sm text-red-600 md:col-span-2">
-                      {createError}
+                  {csvFile && (
+                    <p className="mt-3 text-xs text-slate-500">
+                      Selected:{" "}
+                      <span className="font-semibold text-slate-700">
+                        {csvFile.name}
+                      </span>
                     </p>
                   )}
 
-                  <div className="md:col-span-2">
-                    <button
-                      type="submit"
-                      disabled={creating}
-                      className="rounded-lg bg-slate-950 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {creating
-                        ? "Adding..."
-                        : "Add Feedback"}
-                    </button>
-                  </div>
+                  {importError && (
+                    <p className="mt-3 text-sm font-medium text-red-600">
+                      {importError}
+                    </p>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={importCsv}
+                    disabled={!csvFile || importing}
+                    className="mt-4 rounded-xl bg-slate-950 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {importing
+                      ? "Importing..."
+                      : "Upload CSV"}
+                  </button>
                 </div>
-              </form>
-            )}
-
-            {/* CSV Import Form */}
-            {showImportForm && (
-              <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-                <div className="mb-5">
-                  <h2 className="text-lg font-semibold text-slate-950">
-                    Import Feedback from CSV
-                  </h2>
-
-                  <p className="mt-1 text-sm text-slate-500">
-                    Upload a CSV using the required columns:
-                    <span className="font-medium text-slate-700">
-                      {" "}
-                      content, channel, customerLabel,
-                      sourceRef
-                    </span>
-                  </p>
-                </div>
-
-                <input
-                  type="file"
-                  accept=".csv,text/csv"
-                  onChange={(event) => {
-                    setCsvFile(
-                      event.target.files?.[0] || null
-                    );
-                    setImportError("");
-                    setImportSuccess("");
-                  }}
-                  className="block w-full rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700"
-                />
-
-                {csvFile && (
-                  <p className="mt-3 text-sm text-slate-500">
-                    Selected file:{" "}
-                    <span className="font-medium text-slate-700">
-                      {csvFile.name}
-                    </span>
-                  </p>
-                )}
-
-                {importError && (
-                  <p className="mt-3 text-sm font-medium text-red-600">
-                    {importError}
-                  </p>
-                )}
-
-                <button
-                  type="button"
-                  onClick={importCsv}
-                  disabled={!csvFile || importing}
-                  className="mt-4 rounded-lg bg-slate-950 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {importing
-                    ? "Importing..."
-                    : "Upload CSV"}
-                </button>
-              </div>
-            )}
+              )}
+            </div>
           </section>
         )}
 
         {/* Filters */}
-        <section className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="mb-5 flex items-center justify-between">
-            <div>
-              <h2 className="text-sm font-semibold text-slate-900">
-                Filters
-              </h2>
+        <section className="mb-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className="border-b border-slate-100 px-5 py-5 sm:px-6">
+            <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+              <div>
+                <div className="flex items-center gap-2">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100 text-sm">
+                    ⌕
+                  </div>
 
-              <p className="mt-0.5 text-xs text-slate-500">
-                Narrow feedback by customer, sentiment, theme,
-                channel, or date.
-              </p>
+                  <h2 className="text-sm font-bold">
+                    Filter feedback
+                  </h2>
+                </div>
+
+                <p className="mt-1 pl-10 text-xs text-slate-400">
+                  Narrow results by sentiment, status, theme,
+                  channel, or date.
+                </p>
+              </div>
+
+              {activeFilterCount > 0 && (
+                <span className="w-fit rounded-full bg-slate-100 px-3 py-1 text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                  {activeFilterCount} active
+                </span>
+              )}
             </div>
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <div>
-              <label
-                htmlFor="search"
-                className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500"
-              >
-                Search
-              </label>
-
-              <input
+          <div className="p-5 sm:p-6">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <FilterInput
                 id="search"
-                type="text"
+                label="Search"
                 value={search}
-                onChange={(event) =>
-                  setSearch(event.target.value)
-                }
                 placeholder="Search feedback..."
-                className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
+                onChange={setSearch}
               />
-            </div>
 
-            <div>
-              <label
-                htmlFor="sentiment"
-                className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500"
-              >
-                Sentiment
-              </label>
-
-              <select
+              <FilterSelect
                 id="sentiment"
+                label="Sentiment"
                 value={sentiment}
-                onChange={(event) =>
-                  setSentiment(event.target.value)
-                }
-                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
-              >
-                <option value="">All sentiments</option>
-                <option value="POS">Positive</option>
-                <option value="NEU">Neutral</option>
-                <option value="NEG">Negative</option>
-              </select>
-            </div>
+                onChange={setSentiment}
+                options={[
+                  ["", "All sentiments"],
+                  ["POS", "Positive"],
+                  ["NEU", "Neutral"],
+                  ["NEG", "Negative"],
+                ]}
+              />
 
-            <div>
-              <label
-                htmlFor="status"
-                className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500"
-              >
-                Status
-              </label>
-
-              <select
+              <FilterSelect
                 id="status"
+                label="Status"
                 value={status}
-                onChange={(event) =>
-                  setStatus(event.target.value)
-                }
-                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
-              >
-                <option value="">All statuses</option>
-                <option value="NEW">New</option>
-                <option value="REVIEWED">Reviewed</option>
-                <option value="ACTIONED">Actioned</option>
-              </select>
-            </div>
+                onChange={setStatus}
+                options={[
+                  ["", "All statuses"],
+                  ["NEW", "New"],
+                  ["REVIEWED", "Reviewed"],
+                  ["ACTIONED", "Actioned"],
+                ]}
+              />
 
-            <div>
-              <label
-                htmlFor="channel"
-                className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500"
-              >
-                Channel
-              </label>
-
-              <select
+              <FilterSelect
                 id="channel"
+                label="Channel"
                 value={channel}
-                onChange={(event) =>
-                  setChannel(event.target.value)
-                }
-                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
-              >
-                <option value="">All channels</option>
-                <option value="Support">Support</option>
-                <option value="App Store">App Store</option>
-                <option value="NPS">NPS</option>
-                <option value="Sales">Sales</option>
-                <option value="Community">Community</option>
-              </select>
-            </div>
+                onChange={setChannel}
+                options={[
+                  ["", "All channels"],
+                  ["Support", "Support"],
+                  ["App Store", "App Store"],
+                  ["NPS", "NPS"],
+                  ["Sales", "Sales"],
+                  ["Community", "Community"],
+                ]}
+              />
 
-            <div>
-              <label
-                htmlFor="theme"
-                className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500"
-              >
-                Theme
-              </label>
-
-              <select
+              <FilterSelect
                 id="theme"
+                label="Theme"
                 value={themeId}
-                onChange={(event) =>
-                  setThemeId(event.target.value)
-                }
-                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
-              >
-                <option value="">All themes</option>
+                onChange={setThemeId}
+                options={[
+                  ["", "All themes"],
+                  ...themes.map((theme) => [
+                    theme.id,
+                    theme.name,
+                  ]),
+                ]}
+              />
 
-                {themes.map(
-                  (theme: {
-                    id: string;
-                    name: string;
-                  }) => (
-                    <option
-                      key={theme.id}
-                      value={theme.id}
-                    >
-                      {theme.name}
-                    </option>
-                  )
-                )}
-              </select>
-            </div>
-
-            <div>
-              <label
-                htmlFor="dateFrom"
-                className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500"
-              >
-                Date From
-              </label>
-
-              <input
+              <FilterInput
                 id="dateFrom"
+                label="Date From"
                 type="date"
                 value={dateFrom}
-                onChange={(event) =>
-                  setDateFrom(event.target.value)
-                }
-                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
+                onChange={setDateFrom}
               />
-            </div>
 
-            <div>
-              <label
-                htmlFor="dateTo"
-                className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500"
-              >
-                Date To
-              </label>
-
-              <input
+              <FilterInput
                 id="dateTo"
+                label="Date To"
                 type="date"
                 value={dateTo}
-                onChange={(event) =>
-                  setDateTo(event.target.value)
-                }
-                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
+                onChange={setDateTo}
               />
             </div>
-          </div>
 
-          <div className="mt-5 flex flex-wrap gap-2">
-            <button
-              onClick={handleFilter}
-              className="rounded-lg bg-slate-950 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800"
-            >
-              Apply Filters
-            </button>
+            <div className="mt-5 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={handleFilter}
+                className="rounded-xl bg-slate-950 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-slate-800"
+              >
+                Apply Filters
+              </button>
 
-            <button
-              onClick={handleClearFilters}
-              className="rounded-lg border border-slate-200 bg-white px-5 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 hover:text-slate-900"
-            >
-              Clear Filters
-            </button>
+              <button
+                type="button"
+                onClick={handleClearFilters}
+                className="rounded-xl border border-slate-200 bg-white px-5 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 hover:text-slate-950"
+              >
+                Clear
+              </button>
+            </div>
           </div>
         </section>
 
         {/* Error */}
         {error && (
-          <div className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+          <div className="mb-6 flex items-center gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+            <span>!</span>
             {error}
           </div>
         )}
 
         {/* Loading */}
         {loading && (
-          <div className="rounded-2xl border border-slate-200 bg-white p-10 text-center shadow-sm">
-            <p className="text-sm font-medium text-slate-700">
-              Loading feedback...
-            </p>
-
-            <p className="mt-1 text-xs text-slate-400">
-              Fetching the latest feedback records.
-            </p>
-          </div>
+          <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <div className="space-y-4 p-6">
+              {[1, 2, 3, 4, 5].map((item) => (
+                <div
+                  key={item}
+                  className="flex animate-pulse gap-4"
+                >
+                  <div className="h-10 flex-1 rounded-lg bg-slate-100" />
+                  <div className="h-10 w-24 rounded-lg bg-slate-100" />
+                  <div className="h-10 w-24 rounded-lg bg-slate-100" />
+                </div>
+              ))}
+            </div>
+          </section>
         )}
 
-        {/* Table */}
+        {/* Feedback table */}
         {!loading && (
           <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-            <div className="flex flex-col justify-between gap-3 border-b border-slate-200 px-6 py-5 sm:flex-row sm:items-center">
+            <div className="flex flex-col justify-between gap-4 border-b border-slate-200 px-5 py-5 sm:flex-row sm:items-center sm:px-6">
               <div>
-                <h2 className="text-sm font-semibold text-slate-900">
+                <h2 className="text-sm font-bold">
                   Feedback Records
                 </h2>
 
-                <p className="mt-1 text-xs text-slate-500">
+                <p className="mt-1 text-xs text-slate-400">
                   Showing{" "}
-                  <span className="font-semibold text-slate-700">
+                  <span className="font-semibold text-slate-600">
                     {feedback.length}
                   </span>{" "}
                   of{" "}
-                  <span className="font-semibold text-slate-700">
+                  <span className="font-semibold text-slate-600">
                     {total}
                   </span>{" "}
                   records
                 </p>
               </div>
 
-              <div className="rounded-full bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-600">
-                Page {page} of {totalPages}
+              <div className="flex items-center gap-2">
+                {!canManageFeedback && (
+                  <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                    Read only
+                  </span>
+                )}
+
+                <span className="rounded-full bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-600">
+                  Page {page} / {totalPages}
+                </span>
               </div>
             </div>
 
@@ -917,27 +899,27 @@ export default function FeedbackPage() {
               <table className="min-w-full">
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50/80">
-                    <th className="px-6 py-3.5 text-left text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                    <th className="px-5 py-3.5 text-left text-[9px] font-bold uppercase tracking-[0.16em] text-slate-400 sm:px-6">
                       Feedback
                     </th>
 
-                    <th className="px-6 py-3.5 text-left text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                    <th className="px-5 py-3.5 text-left text-[9px] font-bold uppercase tracking-[0.16em] text-slate-400">
                       Channel
                     </th>
 
-                    <th className="px-6 py-3.5 text-left text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                    <th className="px-5 py-3.5 text-left text-[9px] font-bold uppercase tracking-[0.16em] text-slate-400">
                       Sentiment
                     </th>
 
-                    <th className="px-6 py-3.5 text-left text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                    <th className="px-5 py-3.5 text-left text-[9px] font-bold uppercase tracking-[0.16em] text-slate-400">
                       Status
                     </th>
 
-                    <th className="px-6 py-3.5 text-left text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                    <th className="px-5 py-3.5 text-left text-[9px] font-bold uppercase tracking-[0.16em] text-slate-400">
                       Themes
                     </th>
 
-                    <th className="px-6 py-3.5 text-left text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                    <th className="px-5 py-3.5 text-left text-[9px] font-bold uppercase tracking-[0.16em] text-slate-400">
                       Date
                     </th>
                   </tr>
@@ -950,47 +932,54 @@ export default function FeedbackPage() {
                       onClick={() => {
                         window.location.href = `/feedback/${item.id}`;
                       }}
-                      className="cursor-pointer transition hover:bg-slate-50"
+                      className="group cursor-pointer transition hover:bg-slate-50/80"
                     >
-                      {/* Feedback */}
-                      <td className="max-w-md px-6 py-5">
-                        <p className="line-clamp-2 text-sm font-medium leading-5 text-slate-900">
-                          {item.content}
-                        </p>
+                      <td className="max-w-lg px-5 py-5 sm:px-6">
+                        <div className="flex gap-3">
+                          <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-[10px] font-bold text-slate-500 transition group-hover:bg-slate-950 group-hover:text-white">
+                            {item.customerLabel
+                              ?.charAt(0)
+                              .toUpperCase() ?? "F"}
+                          </div>
 
-                        <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1">
-                          {item.customerLabel && (
-                            <span className="text-xs text-slate-500">
-                              {item.customerLabel}
-                            </span>
-                          )}
+                          <div className="min-w-0">
+                            <p className="line-clamp-2 text-sm font-semibold leading-5 text-slate-900">
+                              {item.content}
+                            </p>
 
-                          {item.sourceRef && (
-                            <>
-                              <span className="text-slate-300">
-                                •
-                              </span>
+                            <div className="mt-2 flex flex-wrap items-center gap-2">
+                              {item.customerLabel && (
+                                <span className="text-[11px] font-medium text-slate-500">
+                                  {item.customerLabel}
+                                </span>
+                              )}
 
-                              <span className="text-xs text-slate-400">
-                                {item.sourceRef}
-                              </span>
-                            </>
-                          )}
+                              {item.sourceRef && (
+                                <>
+                                  <span className="text-slate-300">
+                                    •
+                                  </span>
+
+                                  <span className="text-[11px] text-slate-400">
+                                    {item.sourceRef}
+                                  </span>
+                                </>
+                              )}
+                            </div>
+                          </div>
                         </div>
                       </td>
 
-                      {/* Channel */}
-                      <td className="whitespace-nowrap px-6 py-5">
-                        <span className="inline-flex rounded-lg bg-slate-100 px-2.5 py-1.5 text-xs font-medium text-slate-700">
+                      <td className="whitespace-nowrap px-5 py-5">
+                        <span className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-600 shadow-sm">
                           {item.channel}
                         </span>
                       </td>
 
-                      {/* Sentiment */}
-                      <td className="whitespace-nowrap px-6 py-5">
+                      <td className="whitespace-nowrap px-5 py-5">
                         <span
-                          className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${getSentimentBadge(
-                            item.sentiment
+                          className={`inline-flex items-center rounded-full px-2.5 py-1.5 text-[10px] font-bold ${getSentimentBadge(
+                            item.sentiment,
                           )}`}
                         >
                           <span className="mr-1.5 h-1.5 w-1.5 rounded-full bg-current" />
@@ -998,67 +987,76 @@ export default function FeedbackPage() {
                         </span>
                       </td>
 
-                      {/* Status */}
-                      <td className="whitespace-nowrap px-6 py-5">
-                        <select
-                          value={item.status}
-                          disabled={
-                            updatingId === item.id
-                          }
-                          onClick={(event) => {
-                            event.stopPropagation();
-                          }}
-                          onChange={(event) => {
-                            event.stopPropagation();
+                      <td className="whitespace-nowrap px-5 py-5">
+                        {canManageFeedback ? (
+                          <select
+                            value={item.status}
+                            disabled={
+                              updatingId === item.id
+                            }
+                            onClick={(event) => {
+                              event.stopPropagation();
+                            }}
+                            onChange={(event) => {
+                              event.stopPropagation();
 
-                            updateStatus(
-                              item.id,
-                              event.target.value as
-                                | "NEW"
-                                | "REVIEWED"
-                                | "ACTIONED"
-                            );
-                          }}
-                          className={`rounded-lg border px-3 py-2 text-xs font-semibold outline-none transition disabled:cursor-not-allowed disabled:opacity-50 ${getStatusBadge(
-                            item.status
-                          )}`}
-                        >
-                          <option value="NEW">New</option>
-                          <option value="REVIEWED">
-                            Reviewed
-                          </option>
-                          <option value="ACTIONED">
-                            Actioned
-                          </option>
-                        </select>
+                              updateStatus(
+                                item.id,
+                                event.target.value as
+                                  | "NEW"
+                                  | "REVIEWED"
+                                  | "ACTIONED",
+                              );
+                            }}
+                            className={`rounded-lg border px-3 py-2 text-[10px] font-bold outline-none transition disabled:cursor-not-allowed disabled:opacity-50 ${getStatusBadge(
+                              item.status,
+                            )}`}
+                          >
+                            <option value="NEW">New</option>
+
+                            <option value="REVIEWED">
+                              Reviewed
+                            </option>
+
+                            <option value="ACTIONED">
+                              Actioned
+                            </option>
+                          </select>
+                        ) : (
+                          <span
+                            className={`inline-flex rounded-full border px-2.5 py-1.5 text-[10px] font-bold ${getStatusBadge(
+                              item.status,
+                            )}`}
+                          >
+                            {getStatusLabel(item.status)}
+                          </span>
+                        )}
                       </td>
 
-                      {/* Themes */}
-                      <td className="px-6 py-5">
+                      <td className="px-5 py-5">
                         <div className="flex max-w-xs flex-wrap gap-1.5">
                           {item.feedbackThemes.length > 0 ? (
                             item.feedbackThemes.map(
                               (itemTheme) => (
                                 <span
                                   key={itemTheme.theme.id}
-                                  className="inline-flex rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600"
+                                  className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-semibold text-slate-600"
                                 >
                                   {itemTheme.theme.name}
                                 </span>
-                              )
+                              ),
                             )
                           ) : (
-                            <span className="text-xs text-slate-400">
+                            <span className="text-xs text-slate-300">
                               —
                             </span>
                           )}
                         </div>
                       </td>
 
-                      {/* Date */}
-                      <td className="whitespace-nowrap px-6 py-5 text-xs font-medium text-slate-500">
+                      <td className="whitespace-nowrap px-5 py-5 text-[11px] font-medium text-slate-400">
                         {new Date(
-                          item.createdAt
+                          item.createdAt,
                         ).toLocaleDateString("en-IN", {
                           day: "2-digit",
                           month: "short",
@@ -1072,14 +1070,14 @@ export default function FeedbackPage() {
                     <tr>
                       <td
                         colSpan={6}
-                        className="px-6 py-16 text-center"
+                        className="px-6 py-20 text-center"
                       >
                         <div className="mx-auto max-w-sm">
-                          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-slate-400">
+                          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-xl text-slate-400">
                             ≡
                           </div>
 
-                          <p className="mt-4 text-sm font-semibold text-slate-900">
+                          <p className="mt-4 text-sm font-bold text-slate-900">
                             No feedback found
                           </p>
 
@@ -1087,6 +1085,16 @@ export default function FeedbackPage() {
                             Try adjusting your filters or add
                             new feedback to the workspace.
                           </p>
+
+                          {canManageFeedback && (
+                            <button
+                              type="button"
+                              onClick={handleClearFilters}
+                              className="mt-5 rounded-xl bg-slate-950 px-4 py-2 text-xs font-semibold text-white hover:bg-slate-800"
+                            >
+                              Clear filters
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -1096,39 +1104,41 @@ export default function FeedbackPage() {
             </div>
 
             {/* Pagination */}
-            <div className="flex flex-col gap-3 border-t border-slate-200 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
-              <p className="text-xs font-medium text-slate-500">
+            <div className="flex flex-col gap-3 border-t border-slate-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+              <p className="text-xs font-medium text-slate-400">
                 Page{" "}
-                <span className="font-semibold text-slate-700">
+                <span className="font-bold text-slate-700">
                   {page}
                 </span>{" "}
                 of{" "}
-                <span className="font-semibold text-slate-700">
+                <span className="font-bold text-slate-700">
                   {totalPages}
                 </span>
               </p>
 
               <div className="flex gap-2">
                 <button
+                  type="button"
                   onClick={() =>
                     setPage(
-                      (currentPage) => currentPage - 1
+                      (currentPage) => currentPage - 1,
                     )
                   }
                   disabled={page === 1}
-                  className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                  className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   ← Previous
                 </button>
 
                 <button
+                  type="button"
                   onClick={() =>
                     setPage(
-                      (currentPage) => currentPage + 1
+                      (currentPage) => currentPage + 1,
                     )
                   }
                   disabled={page >= totalPages}
-                  className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                  className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   Next →
                 </button>
@@ -1141,8 +1151,82 @@ export default function FeedbackPage() {
   );
 }
 
+function FilterInput({
+  id,
+  label,
+  value,
+  placeholder,
+  type = "text",
+  onChange,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  placeholder?: string;
+  type?: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div>
+      <label
+        htmlFor={id}
+        className="mb-1.5 block text-[9px] font-bold uppercase tracking-[0.16em] text-slate-400"
+      >
+        {label}
+      </label>
+
+      <input
+        id={id}
+        type={type}
+        value={value}
+        placeholder={placeholder}
+        onChange={(event) => onChange(event.target.value)}
+        className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
+      />
+    </div>
+  );
+}
+
+function FilterSelect({
+  id,
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: string[][];
+}) {
+  return (
+    <div>
+      <label
+        htmlFor={id}
+        className="mb-1.5 block text-[9px] font-bold uppercase tracking-[0.16em] text-slate-400"
+      >
+        {label}
+      </label>
+
+      <select
+        id={id}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none transition focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
+      >
+        {options.map(([optionValue, optionLabel]) => (
+          <option key={optionValue} value={optionValue}>
+            {optionLabel}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
 function getSentimentBadge(
-  sentiment: Feedback["sentiment"]
+  sentiment: Feedback["sentiment"],
 ) {
   if (sentiment === "POS") {
     return "bg-emerald-50 text-emerald-700";
@@ -1160,7 +1244,7 @@ function getSentimentBadge(
 }
 
 function getSentimentLabel(
-  sentiment: Feedback["sentiment"]
+  sentiment: Feedback["sentiment"],
 ) {
   if (sentiment === "POS") {
     return "Positive";
@@ -1178,7 +1262,7 @@ function getSentimentLabel(
 }
 
 function getStatusBadge(
-  status: Feedback["status"]
+  status: Feedback["status"],
 ) {
   if (status === "NEW") {
     return "border-blue-200 bg-blue-50 text-blue-700";
@@ -1189,4 +1273,16 @@ function getStatusBadge(
   }
 
   return "border-emerald-200 bg-emerald-50 text-emerald-700";
+}
+
+function getStatusLabel(status: Feedback["status"]) {
+  if (status === "NEW") {
+    return "New";
+  }
+
+  if (status === "REVIEWED") {
+    return "Reviewed";
+  }
+
+  return "Actioned";
 }
