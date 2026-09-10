@@ -81,16 +81,22 @@ return NextResponse.json({
   feedback: citedFeedback,
 });
   } catch (error) {
-    console.error("Ask LOOP retrieval error:", error);
+  console.error("Ask LOOP error:", error);
+
+  if (error instanceof Error) {
+    console.error("Message:", error.message);
+    console.error("Stack:", error.stack);
+  }
 
   return NextResponse.json(
     {
       error:
         error instanceof Error
           ? error.message
-          : "Failed to retrieve feedback",
+          : "Ask LOOP request failed",
     },
     { status: 500 },
   );
-  }
 }
+}
+/**curl.exe -X POST "https://co.agentrouter.org/v1/messages" -H "x-api-key: sk-Mmvs30ym7LYtzmg9bMXjUMcZcEmlHez3DVFuCdbGh8jIcSug" -H "anthropic-version: 2023-06-01" -H "content-type: application/json" -d "{\"model\":\"claude-opus-4-8\",\"max_tokens\":50,\"messages\":[{\"role\":\"user\",\"content\":\"Reply with only: LOOP OK\"}]}" */

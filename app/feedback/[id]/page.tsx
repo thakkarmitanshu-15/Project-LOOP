@@ -14,6 +14,14 @@ type FeedbackTheme = {
   };
 };
 
+type ClassificationResult = {
+  sentiment: "POS" | "NEU" | "NEG";
+  sentimentScore: number;
+  themes: string[];
+  featureArea: string;
+  rationale: string;
+};
+
 type Feedback = {
   id: string;
   content: string;
@@ -22,9 +30,23 @@ type Feedback = {
   customerLabel: string | null;
   sentiment: "POS" | "NEU" | "NEG" | null;
   sentimentScore: number | null;
+  featureArea: string | null;
+  aiRationale: string | null;
   status: "NEW" | "REVIEWED" | "ACTIONED";
   createdAt: string;
+  needsManualReview: boolean;
   feedbackThemes: FeedbackTheme[];
+};
+
+type ClassificationResponse = {
+  message?: string;
+  classification?: ClassificationResult;
+  themes?: Array<{
+    id: string;
+    name: string;
+  }>;
+  needsManualReview?: boolean;
+  error?: string;
 };
 
 export default function FeedbackDetailPage() {
@@ -52,7 +74,23 @@ export default function FeedbackDetailPage() {
   const [error, setError] = useState("");
   const [updating, setUpdating] = useState(false);
 
+  const [classifying, setClassifying] = useState(false);
+  const [classificationError, setClassificationError] =
+    useState("");
+
+  const [classification, setClassification] =
+    useState<ClassificationResult | null>(null);
+
   const feedbackId = params.id as string;
+
+  const hasClassification =
+    classification !== null ||
+    (
+      feedback?.featureArea !== null &&
+      feedback?.aiRationale !== null &&
+      feedback?.sentiment !== null &&
+      feedback?.sentimentScore !== null
+    );
 
   useEffect(() => {
     async function loadFeedback() {
@@ -75,6 +113,23 @@ export default function FeedbackDetailPage() {
         const data = await response.json();
 
         setFeedback(data.feedback);
+
+        if (
+        data.feedback.featureArea &&
+        data.feedback.aiRationale &&
+        data.feedback.sentiment &&
+        data.feedback.sentimentScore !== null
+      ) {
+        setClassification({
+          sentiment: data.feedback.sentiment,
+          sentimentScore: data.feedback.sentimentScore,
+          themes: data.feedback.feedbackThemes.map(
+            (item: FeedbackTheme) => item.theme.name,
+          ),
+          featureArea: data.feedback.featureArea,
+          rationale: data.feedback.aiRationale,
+        });
+      }
       } catch (error) {
         console.error(error);
 
@@ -135,6 +190,84 @@ export default function FeedbackDetailPage() {
       );
     } finally {
       setUpdating(false);
+    }
+  }
+
+  async function classifyWithAI() {
+    if (!feedback || !canManageFeedback || classifying) {
+      return;
+    }
+
+    try {
+      setClassifying(true);
+      setClassificationError("");
+
+      const response = await fetch(
+        `/api/feedback/${feedback.id}/classify`,
+        {
+          method: "POST",
+        },
+      );
+
+      const data: ClassificationResponse =
+        await response.json();
+
+      if (!response.ok) {
+        if (data.needsManualReview) {
+          setClassificationError(
+            "AI classification failed after two attempts. This feedback has been flagged for manual review.",
+          );
+        } else {
+          setClassificationError(
+            data.error || "Failed to classify feedback",
+          );
+        }
+
+        setFeedback({
+          ...feedback,
+          needsManualReview:
+            data.needsManualReview ?? true,
+        });
+
+        return;
+      }
+
+      if (!data.classification) {
+        throw new Error(
+          "Classification response was incomplete",
+        );
+      }
+
+      setClassification(data.classification);
+
+      setFeedback({
+        ...feedback,
+        sentiment: data.classification.sentiment,
+        sentimentScore:
+          data.classification.sentimentScore,
+        featureArea: data.classification.featureArea,
+        aiRationale: data.classification.rationale,
+        needsManualReview: false,
+        feedbackThemes:
+          data.themes?.map((theme) => ({
+            confidence: 1,
+            theme: {
+              id: theme.id,
+              name: theme.name,
+              color: null,
+            },
+          })) ?? [],
+      });
+    } catch (error) {
+      console.error(error);
+
+      setClassificationError(
+        error instanceof Error
+          ? error.message
+          : "Unable to classify feedback",
+      );
+    } finally {
+      setClassifying(false);
     }
   }
 
@@ -243,6 +376,13 @@ export default function FeedbackDetailPage() {
                     </span>
                   )}
 
+                  {feedback.needsManualReview && (
+                    <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-amber-700">
+                      <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                      Manual review
+                    </span>
+                  )}
+
                   <span
                     className={`inline-flex items-center rounded-full px-3 py-1.5 text-xs font-bold ${getStatusBadge(
                       feedback.status,
@@ -294,6 +434,159 @@ export default function FeedbackDetailPage() {
                         {feedback.content}
                       </p>
                     </div>
+                  </div>
+                </div>
+
+                {/* AI Classification */}
+                <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                  <div className="flex flex-col justify-between gap-4 border-b border-slate-100 px-6 py-5 sm:flex-row sm:items-center">
+                    <div>
+                      <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-slate-400">
+                        AI Intelligence
+                      </p>
+
+                      <h2 className="mt-1 text-lg font-bold">
+                        AI Classification
+                      </h2>
+
+                      <p className="mt-1 text-xs leading-5 text-slate-400">
+                        Analyze this feedback using the workspace&apos;s
+                        existing themes.
+                      </p>
+                    </div>
+
+                    {canManageFeedback && (
+                      <button
+                        type="button"
+                        onClick={classifyWithAI}
+                        disabled={classifying}
+                        className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 py-2.5 text-xs font-bold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {classifying ? (
+                          <>
+                            <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                            Classifying...
+                          </>
+                        ) : (
+                          <>
+                            <span className="text-sm">
+                              {feedback.needsManualReview
+                                ? "↻"
+                                : hasClassification
+                                  ? "↻"
+                                  : "✦"}
+                            </span>
+                            {feedback.needsManualReview
+                              ? "Retry AI Classification"
+                              : hasClassification
+                                ? "Re-classify with AI"
+                                : "Classify with AI"}
+                          </>
+                        )}
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="p-6">
+                    {classificationError && (
+                      <div className="mb-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3">
+                        <p className="text-xs font-semibold leading-5 text-red-700">
+                          {classificationError}
+                        </p>
+                      </div>
+                    )}
+
+                    {classification ? (
+                      <div className="space-y-5">
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                            <p className="text-[9px] font-bold uppercase tracking-[0.15em] text-slate-400">
+                              Sentiment
+                            </p>
+
+                            <p
+                              className={`mt-2 text-lg font-bold ${getSentimentTextColor(
+                                classification.sentiment,
+                              )}`}
+                            >
+                              {getSentimentLabel(
+                                classification.sentiment,
+                              )}
+                            </p>
+                          </div>
+
+                          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                            <p className="text-[9px] font-bold uppercase tracking-[0.15em] text-slate-400">
+                              Sentiment Score
+                            </p>
+
+                            <p className="mt-2 text-lg font-bold text-slate-900">
+                              {classification.sentimentScore > 0
+                                ? "+"
+                                : ""}
+                              {classification.sentimentScore.toFixed(
+                                2,
+                              )}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div>
+                          <p className="text-[9px] font-bold uppercase tracking-[0.15em] text-slate-400">
+                            Feature Area
+                          </p>
+
+                          <p className="mt-2 text-sm font-semibold text-slate-800">
+                            {classification.featureArea}
+                          </p>
+                        </div>
+
+                        <div>
+                          <p className="text-[9px] font-bold uppercase tracking-[0.15em] text-slate-400">
+                            AI Rationale
+                          </p>
+
+                          <p className="mt-2 text-sm leading-6 text-slate-600">
+                            {classification.rationale}
+                          </p>
+                        </div>
+
+                        <div>
+                          <p className="text-[9px] font-bold uppercase tracking-[0.15em] text-slate-400">
+                            Assigned Themes
+                          </p>
+
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {classification.themes.map(
+                              (theme) => (
+                                <span
+                                  key={theme}
+                                  className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700"
+                                >
+                                  {theme}
+                                </span>
+                              ),
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-7 text-center">
+                        <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-xl bg-white text-slate-400 shadow-sm">
+                          ✦
+                        </div>
+
+                        <p className="mt-3 text-sm font-semibold text-slate-700">
+                          No AI classification available
+                        </p>
+
+                        <p className="mx-auto mt-1 max-w-md text-xs leading-5 text-slate-400">
+                          {canManageFeedback
+                            ? "Run AI classification to analyze sentiment, themes, feature area, and rationale."
+                            : "An Administrator or Analyst can run AI classification for this feedback."}
+                        </p>
+                      </div>
+                    )}
                   </div>
                 </div>
 

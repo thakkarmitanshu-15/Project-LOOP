@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getServerSession } from "next-auth";
+
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { classifyFeedback } from "@/lib/ai";
 
 function parseCsvLine(line: string): string[] {
   const values: string[] = [];
@@ -143,12 +145,16 @@ export async function GET(request: Request) {
             createdAt: {
               ...(dateFrom
                 ? {
-                    gte: new Date(`${dateFrom}T00:00:00.000Z`),
+                    gte: new Date(
+                      `${dateFrom}T00:00:00.000Z`,
+                    ),
                   }
                 : {}),
               ...(dateTo
                 ? {
-                    lte: new Date(`${dateTo}T23:59:59.999Z`),
+                    lte: new Date(
+                      `${dateTo}T23:59:59.999Z`,
+                    ),
                   }
                 : {}),
             },
@@ -174,6 +180,9 @@ export async function GET(request: Request) {
           customerLabel: true,
           sentiment: true,
           sentimentScore: true,
+          featureArea: true,
+          aiRationale: true,
+          needsManualReview: true,
           status: true,
           createdAt: true,
           feedbackThemes: {
@@ -213,7 +222,6 @@ export async function GET(request: Request) {
   }
 }
 
-
 const createFeedbackSchema = z.object({
   content: z.string().min(1, "Feedback content is required"),
   channel: z.string().min(1, "Channel is required"),
@@ -228,7 +236,7 @@ export async function POST(request: Request) {
     if (!session?.user?.workspaceId) {
       return NextResponse.json(
         { error: "Unauthorized" },
-        { status: 401 }
+        { status: 401 },
       );
     }
 
@@ -238,7 +246,7 @@ export async function POST(request: Request) {
     ) {
       return NextResponse.json(
         { error: "Forbidden" },
-        { status: 403 }
+        { status: 403 },
       );
     }
 
@@ -252,10 +260,17 @@ export async function POST(request: Request) {
           error: "Invalid feedback data",
           details: result.error.flatten(),
         },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
+    /*
+     * Step 1:
+     * Save the feedback first.
+     *
+     * This is important because AI failure should never
+     * prevent the customer's feedback from being stored.
+     */
     const feedback = await prisma.feedback.create({
       data: {
         content: result.data.content,
@@ -275,20 +290,159 @@ export async function POST(request: Request) {
       },
     });
 
-    return NextResponse.json(
-      { feedback },
-      { status: 201 }
-    );
+    /*
+     * Step 2:
+     * Automatically classify the newly created feedback.
+     */
+    try {
+      const themes = await prisma.theme.findMany({
+        where: {
+          workspaceId: session.user.workspaceId,
+        },
+        select: {
+          id: true,
+          name: true,
+        },
+        orderBy: {
+          name: "asc",
+        },
+      });
+
+      const themeNames = themes.map(
+        (theme) => theme.name,
+      );
+
+      const classification = await classifyFeedback(
+        feedback.content,
+        themeNames,
+      );
+
+      /*
+       * Match AI-returned theme names against the
+       * actual themes in this workspace.
+       */
+      const themeMap = new Map(
+        themes.map((theme) => [
+          theme.name.toLowerCase(),
+          theme,
+        ]),
+      );
+
+      const matchedThemes = classification.themes
+        .map((themeName) =>
+          themeMap.get(themeName.toLowerCase()),
+        )
+        .filter(
+          (
+            theme,
+          ): theme is (typeof themes)[number] =>
+            Boolean(theme),
+        );
+
+      /*
+       * Step 3:
+       * Save the AI classification and theme relationships.
+       */
+      await prisma.$transaction(async (tx) => {
+        await tx.feedback.update({
+          where: {
+            id: feedback.id,
+          },
+          data: {
+            sentiment: classification.sentiment,
+            sentimentScore:
+              classification.sentimentScore,
+            featureArea: classification.featureArea,
+            aiRationale: classification.rationale,
+            needsManualReview: false,
+          },
+        });
+
+        if (matchedThemes.length > 0) {
+          await tx.feedbackTheme.createMany({
+            data: matchedThemes.map((theme) => ({
+              feedbackId: feedback.id,
+              themeId: theme.id,
+              confidence: 1,
+            })),
+          });
+        }
+      });
+
+      /*
+       * Return the newly created feedback together with
+       * its AI classification.
+       */
+      return NextResponse.json(
+        {
+          feedback: {
+            ...feedback,
+            sentiment: classification.sentiment,
+            sentimentScore:
+              classification.sentimentScore,
+            featureArea: classification.featureArea,
+            aiRationale: classification.rationale,
+            needsManualReview: false,
+            feedbackThemes: matchedThemes.map(
+              (theme) => ({
+                confidence: 1,
+                theme: {
+                  id: theme.id,
+                  name: theme.name,
+                },
+              }),
+            ),
+          },
+          classification,
+        },
+        { status: 201 },
+      );
+    } catch (classificationError) {
+      /*
+       * The feedback itself has already been saved.
+       *
+       * If AI fails after both attempts, flag the record
+       * for manual review instead of deleting it.
+       */
+      console.error(
+        "Automatic AI classification failed:",
+        classificationError,
+      );
+
+      await prisma.feedback.update({
+        where: {
+          id: feedback.id,
+        },
+        data: {
+          needsManualReview: true,
+        },
+      });
+
+      return NextResponse.json(
+        {
+          feedback: {
+            ...feedback,
+            needsManualReview: true,
+          },
+          classification: null,
+          message:
+            "Feedback created successfully, but AI classification failed. The feedback has been flagged for manual review.",
+        },
+        { status: 201 },
+      );
+    }
   } catch (error) {
     console.error("Create feedback API error:", error);
 
     return NextResponse.json(
-      { error: "Something went wrong while creating feedback" },
-      { status: 500 }
+      {
+        error:
+          "Something went wrong while creating feedback",
+      },
+      { status: 500 },
     );
   }
 }
-
 
 export async function PATCH(request: Request) {
   try {
@@ -303,7 +457,10 @@ export async function PATCH(request: Request) {
 
     if (session.user.role === "VIEWER") {
       return NextResponse.json(
-        { error: "You do not have permission to update feedback" },
+        {
+          error:
+            "You do not have permission to update feedback",
+        },
         { status: 403 },
       );
     }
@@ -315,13 +472,16 @@ export async function PATCH(request: Request) {
       status: z.enum(["NEW", "REVIEWED", "ACTIONED"]),
     });
 
-    const validationResult = updateSchema.safeParse(body);
+    const validationResult =
+      updateSchema.safeParse(body);
 
     if (!validationResult.success) {
       return NextResponse.json(
         {
           error: "Invalid input",
-          details: validationResult.error.flatten().fieldErrors,
+          details:
+            validationResult.error.flatten()
+              .fieldErrors,
         },
         { status: 400 },
       );
@@ -329,12 +489,13 @@ export async function PATCH(request: Request) {
 
     const { id, status } = validationResult.data;
 
-    const existingFeedback = await prisma.feedback.findFirst({
-      where: {
-        id,
-        workspaceId: session.user.workspaceId,
-      },
-    });
+    const existingFeedback =
+      await prisma.feedback.findFirst({
+        where: {
+          id,
+          workspaceId: session.user.workspaceId,
+        },
+      });
 
     if (!existingFeedback) {
       return NextResponse.json(
@@ -343,18 +504,19 @@ export async function PATCH(request: Request) {
       );
     }
 
-    const updatedFeedback = await prisma.feedback.update({
-      where: {
-        id,
-      },
-      data: {
-        status,
-      },
-      select: {
-        id: true,
-        status: true,
-      },
-    });
+    const updatedFeedback =
+      await prisma.feedback.update({
+        where: {
+          id,
+        },
+        data: {
+          status,
+        },
+        select: {
+          id: true,
+          status: true,
+        },
+      });
 
     return NextResponse.json({
       message: "Feedback status updated successfully",
@@ -364,7 +526,10 @@ export async function PATCH(request: Request) {
     console.error("Feedback update error:", error);
 
     return NextResponse.json(
-      { error: "Something went wrong while updating feedback" },
+      {
+        error:
+          "Something went wrong while updating feedback",
+      },
       { status: 500 },
     );
   }
@@ -377,7 +542,7 @@ export async function PUT(request: Request) {
     if (!session?.user?.workspaceId) {
       return NextResponse.json(
         { error: "Unauthorized" },
-        { status: 401 }
+        { status: 401 },
       );
     }
 
@@ -387,16 +552,19 @@ export async function PUT(request: Request) {
     ) {
       return NextResponse.json(
         { error: "Forbidden" },
-        { status: 403 }
+        { status: 403 },
       );
     }
 
     const body = await request.json();
 
-    if (typeof body.csv !== "string" || !body.csv.trim()) {
+    if (
+      typeof body.csv !== "string" ||
+      !body.csv.trim()
+    ) {
       return NextResponse.json(
         { error: "CSV data is required" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -411,12 +579,12 @@ export async function PUT(request: Request) {
           error:
             "CSV must contain a header and at least one data row",
         },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
-    const headers = parseCsvLine(lines[0]).map((header) =>
-      header.trim()
+    const headers = parseCsvLine(lines[0]).map(
+      (header) => header.trim(),
     );
 
     const expectedHeaders = [
@@ -429,7 +597,8 @@ export async function PUT(request: Request) {
     if (
       headers.length !== expectedHeaders.length ||
       !expectedHeaders.every(
-        (header, index) => headers[index] === header
+        (header, index) =>
+          headers[index] === header,
       )
     ) {
       return NextResponse.json(
@@ -437,7 +606,7 @@ export async function PUT(request: Request) {
           error:
             "Invalid CSV headers. Expected: content,channel,customerLabel,sourceRef",
         },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -461,14 +630,17 @@ export async function PUT(request: Request) {
           row: i + 1,
           error: "Incorrect number of columns",
         });
+
         continue;
       }
 
       const result = csvRowSchema.safeParse({
         content: values[0],
         channel: values[1],
-        customerLabel: values[2] || undefined,
-        sourceRef: values[3] || undefined,
+        customerLabel:
+          values[2] || undefined,
+        sourceRef:
+          values[3] || undefined,
       });
 
       if (!result.success) {
@@ -476,6 +648,7 @@ export async function PUT(request: Request) {
           row: i + 1,
           error: "Invalid feedback data",
         });
+
         continue;
       }
 
@@ -489,7 +662,7 @@ export async function PUT(request: Request) {
           imported: 0,
           errors,
         },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -497,7 +670,8 @@ export async function PUT(request: Request) {
       data: validRows.map((row) => ({
         content: row.content,
         channel: row.channel,
-        customerLabel: row.customerLabel || null,
+        customerLabel:
+          row.customerLabel || null,
         sourceRef: row.sourceRef || null,
         workspaceId: session.user.workspaceId,
       })),
@@ -513,9 +687,10 @@ export async function PUT(request: Request) {
 
     return NextResponse.json(
       {
-        error: "Something went wrong while importing CSV",
+        error:
+          "Something went wrong while importing CSV",
       },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

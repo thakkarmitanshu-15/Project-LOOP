@@ -60,8 +60,11 @@ model Feedback {
   channel        String
   sourceRef      String?
   customerLabel  String?
-  sentiment      Sentiment?
-  sentimentScore Float?
+  sentiment          Sentiment?
+  sentimentScore     Float?
+  featureArea        String?
+  aiRationale        String?
+  needsManualReview  Boolean @default(false)
   status         FeedbackStatus @default(NEW)
   createdAt      DateTime       @default(now())
   workspaceId    String
