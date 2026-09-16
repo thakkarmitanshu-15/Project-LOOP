@@ -1,4 +1,35 @@
 import { prisma } from "@/lib/db";
+import { generateEmbedding } from "@/lib/embeddings";
+
+const MIN_SIMILARITY = 0.25;
+
+function cosineSimilarity(
+  vectorA: number[],
+  vectorB: number[],
+) {
+  if (vectorA.length !== vectorB.length) {
+    return 0;
+  }
+
+  let dotProduct = 0;
+  let magnitudeA = 0;
+  let magnitudeB = 0;
+
+  for (let i = 0; i < vectorA.length; i++) {
+    dotProduct += vectorA[i] * vectorB[i];
+    magnitudeA += vectorA[i] * vectorA[i];
+    magnitudeB += vectorB[i] * vectorB[i];
+  }
+
+  if (magnitudeA === 0 || magnitudeB === 0) {
+    return 0;
+  }
+
+  return (
+    dotProduct /
+    (Math.sqrt(magnitudeA) * Math.sqrt(magnitudeB))
+  );
+}
 
 function extractKeywords(question: string) {
   const stopWords = new Set([
@@ -41,6 +72,85 @@ function extractKeywords(question: string) {
     );
 }
 
+export async function retrieveFeedbackSemantically(
+  workspaceId: string,
+  question: string,
+  limit = 10,
+) {
+  const queryVector = await generateEmbedding(question);
+
+  const embeddings = await prisma.embedding.findMany({
+    where: {
+      feedback: {
+        workspaceId,
+      },
+    },
+    select: {
+      feedbackId: true,
+      vector: true,
+      feedback: {
+        select: {
+          id: true,
+          content: true,
+          channel: true,
+          sentiment: true,
+          sentimentScore: true,
+          status: true,
+          createdAt: true,
+        },
+      },
+    },
+  });
+
+  const scoredFeedback = embeddings
+    .map((item) => {
+      let feedbackVector: number[];
+
+      try {
+        const parsedVector = JSON.parse(item.vector);
+
+        if (
+          !Array.isArray(parsedVector) ||
+          !parsedVector.every(
+            (value: unknown) =>
+              typeof value === "number" &&
+              Number.isFinite(value),
+          )
+        ) {
+          return null;
+        }
+
+        feedbackVector = parsedVector;
+      } catch {
+        return null;
+      }
+
+      const score = cosineSimilarity(
+        queryVector,
+        feedbackVector,
+      );
+
+      return {
+        ...item.feedback,
+        similarity: score,
+      };
+    })
+    .filter(
+      (
+        item,
+      ): item is NonNullable<typeof item> =>
+        item !== null &&
+        item.similarity >= MIN_SIMILARITY,
+    )
+    .sort(
+      (a, b) =>
+        b.similarity - a.similarity,
+    )
+    .slice(0, limit);
+
+  return scoredFeedback;
+}
+
 export async function retrieveFeedback(
   workspaceId: string,
   question: string,
@@ -60,35 +170,33 @@ export async function retrieveFeedback(
 
   const keywords = extractKeywords(question);
 
-  // For broad complaint/problem questions,
-  // prioritize negative customer feedback.
   if (complaintIntent) {
-    const negativeFeedback = await prisma.feedback.findMany({
-      where: {
-        workspaceId,
-        sentiment: "NEG",
-      },
-      select: {
-        id: true,
-        content: true,
-        channel: true,
-        sentiment: true,
-        sentimentScore: true,
-        status: true,
-        createdAt: true,
-      },
-      orderBy: {
-        createdAt: "desc",
-      },
-      take: limit,
-    });
+    const negativeFeedback =
+      await prisma.feedback.findMany({
+        where: {
+          workspaceId,
+          sentiment: "NEG",
+        },
+        select: {
+          id: true,
+          content: true,
+          channel: true,
+          sentiment: true,
+          sentimentScore: true,
+          status: true,
+          createdAt: true,
+        },
+        orderBy: {
+          createdAt: "desc",
+        },
+        take: limit,
+      });
 
     if (negativeFeedback.length > 0) {
       return negativeFeedback;
     }
   }
 
-  // Normal keyword-based retrieval.
   if (keywords.length === 0) {
     return [];
   }
@@ -124,7 +232,8 @@ export async function retrieveFeedback(
 
       const score = keywords.reduce(
         (total, keyword) =>
-          total + (content.includes(keyword) ? 1 : 0),
+          total +
+          (content.includes(keyword) ? 1 : 0),
         0,
       );
 

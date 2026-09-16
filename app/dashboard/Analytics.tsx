@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import FeedbackTrendChart from "./FeedbackTrendChart";
 import SentimentChart from "./SentimentChart";
 import ChannelChart from "./ChannelChart";
+import ThemeTrendChart from "./ThemeTrendChart";
 
 type AnalyticsData = {
   summary: {
@@ -32,6 +33,14 @@ type AnalyticsData = {
     date: string;
     count: number;
   }[];
+
+    themeTrends: {
+    themeId: string;
+    theme: string;
+    color: string | null;
+    date: string;
+    count: number;
+  }[];
 };
 
 export default function Analytics() {
@@ -39,32 +48,32 @@ export default function Analytics() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  useEffect(() => {
-    async function loadAnalytics() {
-      try {
-        setLoading(true);
-        setError("");
+ async function loadAnalytics() {
+  try {
+    setLoading(true);
+    setError("");
 
-        const response = await fetch("/api/analytics");
+    const response = await fetch("/api/analytics");
 
-        if (!response.ok) {
-          throw new Error("Failed to load analytics");
-        }
-
-        const analytics: AnalyticsData =
-          await response.json();
-
-        setData(analytics);
-      } catch (error) {
-        console.error(error);
-        setError("Unable to load analytics");
-      } finally {
-        setLoading(false);
-      }
+    if (!response.ok) {
+      throw new Error("Failed to load analytics");
     }
 
-    loadAnalytics();
-  }, []);
+    const analytics: AnalyticsData =
+      await response.json();
+
+    setData(analytics);
+  } catch (error) {
+    console.error(error);
+    setError("Unable to load analytics");
+  } finally {
+    setLoading(false);
+  }
+}
+
+useEffect(() => {
+  loadAnalytics();
+}, []);
 
   if (loading) {
     return (
@@ -76,26 +85,45 @@ export default function Analytics() {
     );
   }
 
-  if (error) {
-    return (
-      <div className="mt-8 rounded-xl border border-red-200 bg-red-50 p-6">
-        <p className="text-sm text-red-700">
-          {error}
-        </p>
+ if (error) {
+  return (
+    <div className="mt-8 rounded-xl border border-red-200 bg-red-50 p-6">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-sm font-semibold text-red-800">
+            Unable to load analytics
+          </p>
+
+          <p className="mt-1 text-xs text-red-600">
+            Please try again. If the problem continues, check your
+            connection or try again later.
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={loadAnalytics}
+          disabled={loading}
+          className="w-fit rounded-lg border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-700 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {loading ? "Retrying..." : "Try again"}
+        </button>
       </div>
-    );
-  }
+    </div>
+  );
+}
 
   if (!data) {
     return null;
   }
 
   const {
-    summary,
-    feedbackByChannel,
-    feedbackByStatus,
-    feedbackOverTime,
-  } = data;
+  summary,
+  feedbackByChannel,
+  feedbackByStatus,
+  feedbackOverTime,
+  themeTrends,
+} = data;
 
   return (
     <section className="mt-8">
@@ -155,6 +183,11 @@ export default function Analytics() {
           neutral={summary.neutralFeedback}
           negative={summary.negativeFeedback}
         />
+      </div>
+
+      {/* Theme Trends */}
+      <div className="mt-6">
+        <ThemeTrendChart data={themeTrends} />
       </div>
     </section>
   );

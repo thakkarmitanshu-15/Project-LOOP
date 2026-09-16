@@ -2,8 +2,12 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { z } from "zod";
 
+import { prisma } from "@/lib/db";
 import { authOptions } from "@/lib/auth";
-import { retrieveFeedback } from "@/lib/feedback-retrieval";
+import {
+  retrieveFeedback,
+  retrieveFeedbackSemantically,
+} from "@/lib/feedback-retrieval";
 import { askLoop } from "@/lib/ai";
 
 
@@ -41,27 +45,75 @@ export async function POST(request: Request) {
 
     const { question } = validation.data;
 
-    /*
-     * Temporary retrieval strategy:
-     * Search feedback text within the authenticated user's workspace.
-     *
-     * This is the foundation for Ask LOOP.
-     * Semantic embedding retrieval will be added later.
-     */
-   const feedback = await retrieveFeedback(
+    
+ const normalizedQuestion =
+  question.toLowerCase();
+
+const complaintIntent =
+  normalizedQuestion.includes("complaint") ||
+  normalizedQuestion.includes("complain") ||
+  normalizedQuestion.includes("problem") ||
+  normalizedQuestion.includes("issue") ||
+  normalizedQuestion.includes("frustrat") ||
+  normalizedQuestion.includes("negative") ||
+  normalizedQuestion.includes("bad") ||
+  normalizedQuestion.includes("worst") ||
+  normalizedQuestion.includes("pain point");
+
+let feedback;
+
+if (complaintIntent) {
+  feedback = await prisma.feedback.findMany({
+    where: {
+      workspaceId: session.user.workspaceId,
+      sentiment: "NEG",
+    },
+    select: {
+      id: true,
+      content: true,
+      channel: true,
+      sentiment: true,
+      sentimentScore: true,
+      status: true,
+      createdAt: true,
+    },
+    orderBy: {
+      createdAt: "desc",
+    },
+    take: 10,
+  });
+
+  if (feedback.length === 0) {
+    const semanticFeedback =
+      await retrieveFeedbackSemantically(
         session.user.workspaceId,
         question,
-          10,
+        10,
+      );
+
+    feedback = semanticFeedback.map(
+      ({ similarity, ...item }) => item,
+    );
+  }
+} else {
+  const semanticFeedback =
+    await retrieveFeedbackSemantically(
+      session.user.workspaceId,
+      question,
+      10,
     );
 
-   if (feedback.length === 0) {
-  return NextResponse.json({
-    question,
-    answer:
-      "I could not find enough relevant feedback to answer that question.",
-    feedbackIds: [],
-    feedback: [],
-  });
+  if (semanticFeedback.length > 0) {
+    feedback = semanticFeedback.map(
+      ({ similarity, ...item }) => item,
+    );
+  } else {
+    feedback = await retrieveFeedback(
+      session.user.workspaceId,
+      question,
+      10,
+    );
+  }
 }
 
 const result = await askLoop(question, feedback);

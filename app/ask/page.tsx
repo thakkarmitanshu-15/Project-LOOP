@@ -109,7 +109,7 @@ export default function AskLoopPage() {
 
         {/* Search box */}
         <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-          <form onSubmit={handleSubmit}>
+          <form id="ask-loop-form" onSubmit={handleSubmit}>
             <label
               htmlFor="question"
               className="mb-2 block text-sm font-semibold text-slate-900"
@@ -138,10 +138,35 @@ export default function AskLoopPage() {
             </div>
 
             {error && (
-              <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                {error}
+          <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-sm font-semibold text-red-800">
+                  {error}
+                </p>
+
+                <p className="mt-1 text-xs text-red-600">
+                  Your question was not completed. You can try again.
+                </p>
               </div>
-            )}
+
+              <button
+                type="button"
+                onClick={() => {
+                  const form = document.getElementById("ask-loop-form");
+
+                  if (form instanceof HTMLFormElement) {
+                    form.requestSubmit();
+                  }
+                }}
+                disabled={loading}
+                className="w-fit rounded-lg border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-700 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {loading ? "Retrying..." : "Try again"}
+              </button>
+            </div>
+          </div>
+        )}
           </form>
         </section>
 
@@ -270,8 +295,8 @@ export default function AskLoopPage() {
             </h2>
 
             <p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-slate-500">
-              Ask a question above to retrieve relevant customer feedback.
-              Claude-powered answers will be connected in the next stage.
+              Ask questions above to retrieve relevant customer feedback and
+              generate an evidence-backed answer. 
             </p>
           </section>
         )}

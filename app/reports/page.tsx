@@ -34,6 +34,23 @@ type Report = {
   periodEnd: string;
   createdAt: string;
   generatedBy: string;
+  contentJson?: {
+    summary: string;
+    topThemes: {
+      theme: string;
+      insight: string;
+    }[];
+    sentimentShift: {
+      positive: string;
+      neutral: string;
+      negative: string;
+    };
+    notableQuotes: {
+      quote: string;
+      feedbackId: string;
+    }[];
+    recommendedActions: string[];
+  };
 };
 
 type ReportsResponse = {
@@ -95,8 +112,20 @@ export default function ReportsPage() {
     return new Date().toISOString().split("T")[0];
   });
 
-  const [data, setData] = useState<ReportsResponse | null>(null);
+  const [data, setData] =
+    useState<ReportsResponse | null>(null);
+
   const [loading, setLoading] = useState(true);
+
+  const [generating, setGenerating] =
+    useState(false);
+
+  const [generatedReport, setGeneratedReport] =
+    useState<Report | null>(null);
+
+  const [viewingReport, setViewingReport] =
+  useState(false);
+
   const [error, setError] = useState("");
 
   async function loadReport() {
@@ -113,11 +142,13 @@ export default function ReportsPage() {
         `/api/reports?${params.toString()}`,
       );
 
-      const result: ReportsResponse = await response.json();
+      const result: ReportsResponse =
+        await response.json();
 
       if (!response.ok) {
         throw new Error(
-          result.error || "Failed to load report data",
+          result.error ||
+            "Failed to load report data",
         );
       }
 
@@ -138,11 +169,88 @@ export default function ReportsPage() {
   }, []);
 
   function handleApplyPeriod() {
+    setGeneratedReport(null);
     loadReport();
   }
 
+  async function handleGenerateReport() {
+    setGenerating(true);
+    setError("");
+
+    try {
+      const response = await fetch(
+        "/api/reports",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+          body: JSON.stringify({
+            periodStart: `${periodStart}T00:00:00.000Z`,
+            periodEnd: `${periodEnd}T23:59:59.999Z`,
+          }),
+        },
+      );
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          result.error ||
+            "Failed to generate report",
+        );
+      }
+
+      setGeneratedReport(result.report);
+
+      await loadReport();
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to generate report",
+      );
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  async function handleViewReport(
+  reportId: string,
+) {
+  setViewingReport(true);
+  setError("");
+
+  try {
+    const response = await fetch(
+      `/api/reports/${reportId}`,
+    );
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(
+        result.error ||
+          "Failed to load saved report",
+      );
+    }
+
+    setGeneratedReport(result.report);
+  } catch (err) {
+    setError(
+      err instanceof Error
+        ? err.message
+        : "Failed to load saved report",
+    );
+  } finally {
+    setViewingReport(false);
+  }
+}
   function formatDate(dateString: string) {
-    return new Date(dateString).toLocaleDateString(undefined, {
+    return new Date(
+      dateString,
+    ).toLocaleDateString(undefined, {
       day: "numeric",
       month: "short",
       year: "numeric",
@@ -167,8 +275,9 @@ export default function ReportsPage() {
             </h1>
 
             <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500 sm:text-base">
-              Understand what customers are saying, how sentiment is
-              changing, and which themes deserve attention.
+              Understand what customers are saying,
+              how sentiment is changing, and which
+              themes deserve attention.
             </p>
           </div>
 
@@ -188,7 +297,9 @@ export default function ReportsPage() {
                   type="date"
                   value={periodStart}
                   onChange={(event) =>
-                    setPeriodStart(event.target.value)
+                    setPeriodStart(
+                      event.target.value,
+                    )
                   }
                   className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none focus:border-slate-400 focus:bg-white"
                 />
@@ -207,40 +318,87 @@ export default function ReportsPage() {
                   type="date"
                   value={periodEnd}
                   onChange={(event) =>
-                    setPeriodEnd(event.target.value)
+                    setPeriodEnd(
+                      event.target.value,
+                    )
                   }
                   className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none focus:border-slate-400 focus:bg-white"
                 />
               </div>
 
-              <button
-                type="button"
-                onClick={handleApplyPeriod}
-                disabled={loading}
-                className="rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-60"
-              >
-                {loading ? "Loading..." : "Apply"}
-              </button>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={handleApplyPeriod}
+                  disabled={
+                    loading || generating
+                  }
+                  className="rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-60"
+                >
+                  {loading
+                    ? "Loading..."
+                    : "Apply"}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={
+                    handleGenerateReport
+                  }
+                  disabled={
+                    loading ||
+                    generating ||
+                    !periodStart ||
+                    !periodEnd
+                  }
+                  className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-800 transition hover:bg-slate-50 disabled:opacity-60"
+                >
+                  {generating
+                    ? "Generating..."
+                    : "Generate AI Report"}
+                </button>
+              </div>
             </div>
           </div>
         </div>
 
         {/* Error */}
-        {error && (
-          <div className="mt-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-            {error}
+       {error && (
+          <div className="mt-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-sm font-semibold text-red-800">
+                  {error}
+                </p>
+
+                <p className="mt-1 text-xs text-red-600">
+                  Please try again or check your connection.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={loadReport}
+                disabled={loading || generating}
+                className="w-fit rounded-lg border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-700 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {loading ? "Retrying..." : "Try again"}
+              </button>
+            </div>
           </div>
         )}
-
+        
         {/* Loading */}
         {loading && !data ? (
           <div className="mt-8 grid gap-4 md:grid-cols-4">
-            {[1, 2, 3, 4].map((item) => (
-              <div
-                key={item}
-                className="h-32 animate-pulse rounded-2xl border border-slate-200 bg-white"
-              />
-            ))}
+            {[1, 2, 3, 4].map(
+              (item) => (
+                <div
+                  key={item}
+                  className="h-32 animate-pulse rounded-2xl border border-slate-200 bg-white"
+                />
+              ),
+            )}
           </div>
         ) : data ? (
           <>
@@ -252,8 +410,13 @@ export default function ReportsPage() {
                 </p>
 
                 <p className="mt-1 text-sm font-semibold text-slate-900">
-                  {formatDate(data.period.start)} —{" "}
-                  {formatDate(data.period.end)}
+                  {formatDate(
+                    data.period.start,
+                  )}{" "}
+                  —{" "}
+                  {formatDate(
+                    data.period.end,
+                  )}
                 </p>
               </div>
             </div>
@@ -262,7 +425,10 @@ export default function ReportsPage() {
             <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
               <SummaryCard
                 label="Total feedback"
-                value={data.summary.totalFeedback}
+                value={
+                  data.summary
+                    .totalFeedback
+                }
                 description="Customer responses received"
               />
 
@@ -285,6 +451,194 @@ export default function ReportsPage() {
               />
             </div>
 
+            {/* Generated AI report */}
+            {generatedReport?.contentJson && (
+              <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <h2 className="text-lg font-semibold text-slate-900">
+                    AI-Generated Voice of Customer Report
+                  </h2>
+
+                  <button
+                    type="button"
+                    onClick={handleExportReport}
+                    className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                  >
+                    Export / Print
+                  </button>
+                </div>
+
+                  <span className="inline-flex w-fit rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+                    AI Report
+                  </span>
+                </div>
+
+                {/* Summary */}
+                <div className="mt-6 rounded-xl bg-slate-50 p-5">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                    Executive summary
+                  </p>
+
+                  <p className="mt-2 text-sm leading-7 text-slate-700">
+                    {
+                      generatedReport
+                        .contentJson
+                        .summary
+                    }
+                  </p>
+                </div>
+
+                {/* AI themes */}
+                <div className="mt-6">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                    Key customer themes
+                  </p>
+
+                  <div className="mt-4 grid gap-4 md:grid-cols-2">
+                    {generatedReport.contentJson.topThemes.map(
+                      (theme, index) => (
+                        <div
+                          key={`${theme.theme}-${index}`}
+                          className="rounded-xl border border-slate-100 bg-slate-50 p-5"
+                        >
+                          <div className="flex items-start gap-3">
+                            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white text-xs font-bold text-slate-500">
+                              {String(
+                                index + 1,
+                              ).padStart(
+                                2,
+                                "0",
+                              )}
+                            </span>
+
+                            <div>
+                              <h3 className="text-sm font-bold text-slate-900">
+                                {theme.theme}
+                              </h3>
+
+                              <p className="mt-1.5 text-sm leading-6 text-slate-600">
+                                {theme.insight}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      ),
+                    )}
+                  </div>
+                </div>
+
+                {/* Sentiment shift */}
+                <div className="mt-6">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                    Sentiment shift
+                  </p>
+
+                  <div className="mt-4 grid gap-4 md:grid-cols-3">
+                    <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-5">
+                      <p className="text-sm font-bold text-emerald-800">
+                        Positive
+                      </p>
+
+                      <p className="mt-2 text-sm leading-6 text-emerald-700">
+                        {
+                          generatedReport
+                            .contentJson
+                            .sentimentShift
+                            .positive
+                        }
+                      </p>
+                    </div>
+
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-5">
+                      <p className="text-sm font-bold text-slate-700">
+                        Neutral
+                      </p>
+
+                      <p className="mt-2 text-sm leading-6 text-slate-600">
+                        {
+                          generatedReport
+                            .contentJson
+                            .sentimentShift
+                            .neutral
+                        }
+                      </p>
+                    </div>
+
+                    <div className="rounded-xl border border-red-100 bg-red-50 p-5">
+                      <p className="text-sm font-bold text-red-800">
+                        Negative
+                      </p>
+
+                      <p className="mt-2 text-sm leading-6 text-red-700">
+                        {
+                          generatedReport
+                            .contentJson
+                            .sentimentShift
+                            .negative
+                        }
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Notable quotes */}
+                <div className="mt-6">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                    Notable customer quotes
+                  </p>
+
+                  <div className="mt-4 space-y-3">
+                    {generatedReport.contentJson.notableQuotes.map(
+                      (item, index) => (
+                        <blockquote
+                          key={`${item.feedbackId}-${index}`}
+                          className="rounded-xl border border-slate-100 bg-slate-50 p-5"
+                        >
+                          <p className="text-sm leading-7 text-slate-700">
+                            &ldquo;
+                            {item.quote}
+                            &rdquo;
+                          </p>
+
+                          <p className="mt-2 text-[11px] font-semibold text-slate-400">
+                            Feedback ID:{" "}
+                            {item.feedbackId}
+                          </p>
+                        </blockquote>
+                      ),
+                    )}
+                  </div>
+                </div>
+
+                {/* Recommended actions */}
+                <div className="mt-6">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                    Recommended actions
+                  </p>
+
+                  <div className="mt-4 space-y-3">
+                    {generatedReport.contentJson.recommendedActions.map(
+                      (action, index) => (
+                        <div
+                          key={index}
+                          className="flex items-start gap-3 rounded-xl border border-slate-100 bg-white p-4"
+                        >
+                          <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-950 text-[11px] font-bold text-white">
+                            {index + 1}
+                          </span>
+
+                          <p className="text-sm leading-6 text-slate-700">
+                            {action}
+                          </p>
+                        </div>
+                      ),
+                    )}
+                  </div>
+                </div>
+              </section>
+            )}
+
             {/* Main report grid */}
             <div className="mt-6 grid gap-6 lg:grid-cols-2">
               {/* Top themes */}
@@ -305,56 +659,72 @@ export default function ReportsPage() {
                   </span>
                 </div>
 
-                {data.topThemes.length === 0 ? (
+                {data.topThemes.length ===
+                0 ? (
                   <EmptyState text="No themes found for this workspace." />
                 ) : (
                   <div className="mt-6 space-y-4">
-                    {data.topThemes.map((theme, index) => (
-                      <div key={theme.id}>
-                        <div className="mb-2 flex items-center justify-between gap-4">
-                          <div className="flex min-w-0 items-center gap-3">
-                            <span className="w-5 text-xs font-bold text-slate-400">
-                              {String(index + 1).padStart(2, "0")}
-                            </span>
+                    {data.topThemes.map(
+                      (theme, index) => (
+                        <div
+                          key={theme.id}
+                        >
+                          <div className="mb-2 flex items-center justify-between gap-4">
+                            <div className="flex min-w-0 items-center gap-3">
+                              <span className="w-5 text-xs font-bold text-slate-400">
+                                {String(
+                                  index + 1,
+                                ).padStart(
+                                  2,
+                                  "0",
+                                )}
+                              </span>
 
-                            <span
-                              className="h-2.5 w-2.5 shrink-0 rounded-full"
-                              style={{
-                                backgroundColor:
-                                  theme.color || "#0f172a",
-                              }}
-                            />
+                              <span
+                                className="h-2.5 w-2.5 shrink-0 rounded-full"
+                                style={{
+                                  backgroundColor:
+                                    theme.color ||
+                                    "#0f172a",
+                                }}
+                              />
 
-                            <span className="truncate text-sm font-semibold text-slate-800">
-                              {theme.name}
+                              <span className="truncate text-sm font-semibold text-slate-800">
+                                {theme.name}
+                              </span>
+                            </div>
+
+                            <span className="text-xs font-semibold text-slate-500">
+                              {
+                                theme.feedbackCount
+                              }
                             </span>
                           </div>
 
-                          <span className="text-xs font-semibold text-slate-500">
-                            {theme.feedbackCount}
-                          </span>
+                          <div className="ml-8 h-2 overflow-hidden rounded-full bg-slate-100">
+                            <div
+                              className="h-full rounded-full bg-slate-900 transition-all"
+                              style={{
+                                width: `${
+                                  data
+                                    .topThemes[0]
+                                    ?.feedbackCount
+                                    ? Math.max(
+                                        5,
+                                        (theme.feedbackCount /
+                                          data
+                                            .topThemes[0]
+                                            .feedbackCount) *
+                                          100,
+                                      )
+                                    : 0
+                                }%`,
+                              }}
+                            />
+                          </div>
                         </div>
-
-                        <div className="ml-8 h-2 overflow-hidden rounded-full bg-slate-100">
-                          <div
-                            className="h-full rounded-full bg-slate-900 transition-all"
-                            style={{
-                              width: `${
-                                data.topThemes[0]?.feedbackCount
-                                  ? Math.max(
-                                      5,
-                                      (theme.feedbackCount /
-                                        data.topThemes[0]
-                                          .feedbackCount) *
-                                        100,
-                                    )
-                                  : 0
-                              }%`,
-                            }}
-                          />
-                        </div>
-                      </div>
-                    ))}
+                      ),
+                    )}
                   </div>
                 )}
               </section>
@@ -375,27 +745,42 @@ export default function ReportsPage() {
                   <SentimentRow
                     label="Positive"
                     percentage={
-                      data.summary.sentimentRate.positive
+                      data.summary
+                        .sentimentRate
+                        .positive
                     }
-                    count={data.summary.positiveFeedback}
+                    count={
+                      data.summary
+                        .positiveFeedback
+                    }
                     className="bg-emerald-500"
                   />
 
                   <SentimentRow
                     label="Neutral"
                     percentage={
-                      data.summary.sentimentRate.neutral
+                      data.summary
+                        .sentimentRate
+                        .neutral
                     }
-                    count={data.summary.neutralFeedback}
+                    count={
+                      data.summary
+                        .neutralFeedback
+                    }
                     className="bg-slate-400"
                   />
 
                   <SentimentRow
                     label="Negative"
                     percentage={
-                      data.summary.sentimentRate.negative
+                      data.summary
+                        .sentimentRate
+                        .negative
                     }
-                    count={data.summary.negativeFeedback}
+                    count={
+                      data.summary
+                        .negativeFeedback
+                    }
                     className="bg-red-500"
                   />
                 </div>
@@ -406,13 +791,19 @@ export default function ReportsPage() {
                   </p>
 
                   <p className="mt-2 text-sm leading-6 text-slate-600">
-                    {data.summary.totalFeedback === 0
+                    {data.summary
+                      .totalFeedback ===
+                    0
                       ? "There is not enough feedback data for this period."
-                      : data.summary.negativeFeedback >
-                          data.summary.positiveFeedback
+                      : data.summary
+                            .negativeFeedback >
+                          data.summary
+                            .positiveFeedback
                         ? "Negative feedback currently outweighs positive feedback during this reporting period."
-                        : data.summary.positiveFeedback >
-                            data.summary.negativeFeedback
+                        : data.summary
+                              .positiveFeedback >
+                            data.summary
+                              .negativeFeedback
                           ? "Positive feedback currently outweighs negative feedback during this reporting period."
                           : "Positive and negative feedback are currently balanced during this reporting period."}
                   </p>
@@ -433,8 +824,9 @@ export default function ReportsPage() {
                   </h2>
 
                   <p className="mt-1 text-sm text-slate-500">
-                    Change in sentiment compared with the previous
-                    equivalent period.
+                    Change in sentiment compared
+                    with the previous equivalent
+                    period.
                   </p>
                 </div>
 
@@ -445,11 +837,15 @@ export default function ReportsPage() {
 
                   <p className="mt-1 text-xs font-semibold text-slate-600">
                     {formatDate(
-                      data.summary.previousPeriod.start,
+                      data.summary
+                        .previousPeriod
+                        .start,
                     )}{" "}
                     —{" "}
                     {formatDate(
-                      data.summary.previousPeriod.end,
+                      data.summary
+                        .previousPeriod
+                        .end,
                     )}
                   </p>
                 </div>
@@ -458,30 +854,60 @@ export default function ReportsPage() {
               <div className="mt-6 grid gap-4 md:grid-cols-3">
                 <ShiftCard
                   label="Positive"
-                  value={data.summary.sentimentShift.positive}
-                  current={data.summary.sentimentRate.positive}
+                  value={
+                    data.summary
+                      .sentimentShift
+                      .positive
+                  }
+                  current={
+                    data.summary
+                      .sentimentRate
+                      .positive
+                  }
                   previous={
-                    data.summary.previousPeriod.sentimentRate
+                    data.summary
+                      .previousPeriod
+                      .sentimentRate
                       .positive
                   }
                 />
 
                 <ShiftCard
                   label="Neutral"
-                  value={data.summary.sentimentShift.neutral}
-                  current={data.summary.sentimentRate.neutral}
+                  value={
+                    data.summary
+                      .sentimentShift
+                      .neutral
+                  }
+                  current={
+                    data.summary
+                      .sentimentRate
+                      .neutral
+                  }
                   previous={
-                    data.summary.previousPeriod.sentimentRate
+                    data.summary
+                      .previousPeriod
+                      .sentimentRate
                       .neutral
                   }
                 />
 
                 <ShiftCard
                   label="Negative"
-                  value={data.summary.sentimentShift.negative}
-                  current={data.summary.sentimentRate.negative}
+                  value={
+                    data.summary
+                      .sentimentShift
+                      .negative
+                  }
+                  current={
+                    data.summary
+                      .sentimentRate
+                      .negative
+                  }
                   previous={
-                    data.summary.previousPeriod.sentimentRate
+                    data.summary
+                      .previousPeriod
+                      .sentimentRate
                       .negative
                   }
                 />
@@ -501,63 +927,87 @@ export default function ReportsPage() {
                   </h2>
 
                   <p className="mt-1 text-sm text-slate-500">
-                    Recent feedback from the selected reporting
-                    period.
+                    Recent feedback from the selected
+                    reporting period.
                   </p>
                 </div>
 
                 <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-500">
-                  {data.recentFeedback.length} items
+                  {
+                    data.recentFeedback
+                      .length
+                  }{" "}
+                  items
                 </span>
               </div>
 
-              {data.recentFeedback.length === 0 ? (
+              {data.recentFeedback.length ===
+              0 ? (
                 <EmptyState text="No feedback was found for this period." />
               ) : (
                 <div className="mt-6 grid gap-4 md:grid-cols-2">
-                  {data.recentFeedback.slice(0, 8).map((item) => (
-                    <article
-                      key={item.id}
-                      className="rounded-xl border border-slate-100 bg-slate-50 p-4"
-                    >
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-600">
-                          {item.channel}
-                        </span>
-
-                        {item.sentiment && (
-                          <span
-                            className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${sentimentStyles[item.sentiment]}`}
-                          >
-                            {item.sentiment}
+                  {data.recentFeedback
+                    .slice(0, 8)
+                    .map((item) => (
+                      <article
+                        key={item.id}
+                        className="rounded-xl border border-slate-100 bg-slate-50 p-4"
+                      >
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-600">
+                            {item.channel}
                           </span>
-                        )}
 
-                        <span className="ml-auto text-xs text-slate-400">
-                          {formatDate(item.createdAt)}
-                        </span>
-                      </div>
+                          {item.sentiment && (
+                            <span
+                              className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${sentimentStyles[item.sentiment]}`}
+                            >
+                              {item.sentiment}
+                            </span>
+                          )}
 
-                      <p className="mt-3 text-sm leading-6 text-slate-700">
-                        &ldquo;{item.content}&rdquo;
-                      </p>
-
-                      {item.feedbackThemes.length > 0 && (
-                        <div className="mt-4 flex flex-wrap gap-2">
-                          {item.feedbackThemes
-                            .slice(0, 3)
-                            .map((feedbackTheme) => (
-                              <span
-                                key={feedbackTheme.theme.id}
-                                className="rounded-md bg-white px-2 py-1 text-[10px] font-semibold text-slate-500"
-                              >
-                                {feedbackTheme.theme.name}
-                              </span>
-                            ))}
+                          <span className="ml-auto text-xs text-slate-400">
+                            {formatDate(
+                              item.createdAt,
+                            )}
+                          </span>
                         </div>
-                      )}
-                    </article>
-                  ))}
+
+                        <p className="mt-3 text-sm leading-6 text-slate-700">
+                          &ldquo;
+                          {item.content}
+                          &rdquo;
+                        </p>
+
+                        {item.feedbackThemes
+                          .length > 0 && (
+                          <div className="mt-4 flex flex-wrap gap-2">
+                            {item.feedbackThemes
+                              .slice(0, 3)
+                              .map(
+                                (
+                                  feedbackTheme,
+                                ) => (
+                                  <span
+                                    key={
+                                      feedbackTheme
+                                        .theme
+                                        .id
+                                    }
+                                    className="rounded-md bg-white px-2 py-1 text-[10px] font-semibold text-slate-500"
+                                  >
+                                    {
+                                      feedbackTheme
+                                        .theme
+                                        .name
+                                    }
+                                  </span>
+                                ),
+                              )}
+                          </div>
+                        )}
+                      </article>
+                    ))}
                 </div>
               )}
             </section>
@@ -574,40 +1024,63 @@ export default function ReportsPage() {
                 </h2>
               </div>
 
-              {data.reports.length === 0 ? (
+              {data.reports.length ===
+              0 ? (
                 <div className="mt-5 rounded-xl border border-dashed border-slate-200 bg-slate-50 px-5 py-8 text-center">
                   <p className="text-sm font-semibold text-slate-700">
                     No saved reports yet
                   </p>
 
                   <p className="mt-1 text-xs text-slate-500">
-                    AI-generated reports will appear here once
-                    report generation is enabled.
+                    AI-generated reports will
+                    appear here once report
+                    generation is enabled.
                   </p>
                 </div>
               ) : (
                 <div className="mt-5 divide-y divide-slate-100">
-                  {data.reports.map((report) => (
-                    <div
-                      key={report.id}
-                      className="flex flex-col gap-2 py-4 sm:flex-row sm:items-center sm:justify-between"
-                    >
-                      <div>
-                        <p className="text-sm font-semibold text-slate-900">
-                          {report.title}
-                        </p>
+                 {data.reports.map(
+  (report) => (
+    <button
+      key={report.id}
+      type="button"
+      onClick={() =>
+        handleViewReport(report.id)
+      }
+      disabled={viewingReport}
+      className="flex w-full flex-col gap-2 py-4 text-left transition hover:bg-slate-50 disabled:opacity-60 sm:flex-row sm:items-center sm:justify-between"
+    >
+      <div>
+        <p className="text-sm font-semibold text-slate-900">
+          {report.title}
+        </p>
 
-                        <p className="mt-1 text-xs text-slate-500">
-                          {formatDate(report.periodStart)} —{" "}
-                          {formatDate(report.periodEnd)}
-                        </p>
-                      </div>
+        <p className="mt-1 text-xs text-slate-500">
+          {formatDate(
+            report.periodStart,
+          )}{" "}
+          —{" "}
+          {formatDate(
+            report.periodEnd,
+          )}
+        </p>
+      </div>
 
-                      <span className="text-xs text-slate-400">
-                        Created {formatDate(report.createdAt)}
-                      </span>
-                    </div>
-                  ))}
+      <div className="flex items-center gap-3">
+        <span className="text-xs text-slate-400">
+          Created{" "}
+          {formatDate(
+            report.createdAt,
+          )}
+        </span>
+
+        <span className="text-xs font-semibold text-slate-500">
+          View →
+        </span>
+      </div>
+    </button>
+  ),
+)}
                 </div>
               )}
             </section>
@@ -670,7 +1143,9 @@ function SentimentRow({
       <div className="h-2.5 overflow-hidden rounded-full bg-slate-100">
         <div
           className={`h-full rounded-full transition-all ${className}`}
-          style={{ width: `${percentage}%` }}
+          style={{
+            width: `${percentage}%`,
+          }}
         />
       </div>
     </div>
@@ -723,16 +1198,27 @@ function ShiftCard({
       </div>
 
       <p className="mt-2 text-xs leading-5 text-slate-500">
-        Percentage-point change from the previous period.
+        Percentage-point change from the previous
+        period.
       </p>
     </div>
   );
 }
 
-function EmptyState({ text }: { text: string }) {
+function EmptyState({
+  text,
+}: {
+  text: string;
+}) {
   return (
     <div className="mt-6 rounded-xl border border-dashed border-slate-200 bg-slate-50 px-5 py-8 text-center">
-      <p className="text-sm text-slate-500">{text}</p>
+      <p className="text-sm text-slate-500">
+        {text}
+      </p>
     </div>
   );
+}
+
+function handleExportReport() {
+  window.print();
 }

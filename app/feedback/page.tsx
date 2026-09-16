@@ -835,12 +835,26 @@ export default function FeedbackPage() {
         </section>
 
         {/* Error */}
-        {error && (
-          <div className="mb-6 flex items-center gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
-            <span>!</span>
-            {error}
+       {error && (
+        <div className="mb-6 flex flex-col gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-3">
+            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-red-100 text-xs font-bold">
+              !
+            </span>
+
+            <span>{error}</span>
           </div>
-        )}
+
+          <button
+            type="button"
+            onClick={loadFeedback}
+            disabled={loading}
+            className="w-fit rounded-lg border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-700 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {loading ? "Retrying..." : "Try again"}
+          </button>
+        </div>
+      )}
 
         {/* Loading */}
         {loading && (

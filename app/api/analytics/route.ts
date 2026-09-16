@@ -24,6 +24,7 @@ export async function GET() {
       channelGroups,
       statusGroups,
       dailyFeedback,
+      themeFeedback,
     ] = await Promise.all([
       prisma.feedback.count({
         where: {
@@ -88,6 +89,33 @@ export async function GET() {
           createdAt: "asc",
         },
       }),
+
+      prisma.feedbackTheme.findMany({
+      where: {
+        feedback: {
+          workspaceId,
+        },
+      },
+      select: {
+        theme: {
+          select: {
+            id: true,
+            name: true,
+            color: true,
+          },
+        },
+        feedback: {
+          select: {
+            createdAt: true,
+          },
+        },
+      },
+      orderBy: {
+        feedback: {
+          createdAt: "asc",
+        },
+      },
+    }),
     ]);
 
     const sentimentTotal =
@@ -140,6 +168,52 @@ export async function GET() {
       count,
     }));
 
+    const themeFeedbackMap = new Map<
+        string,
+        {
+          themeId: string;
+          theme: string;
+          color: string | null;
+          dates: Map<string, number>;
+        }
+      >();
+
+      for (const item of themeFeedback) {
+        const date = item.feedback.createdAt
+          .toISOString()
+          .slice(0, 10);
+
+        const existing = themeFeedbackMap.get(item.theme.id);
+
+        if (existing) {
+          existing.dates.set(
+            date,
+            (existing.dates.get(date) || 0) + 1
+          );
+        } else {
+          themeFeedbackMap.set(item.theme.id, {
+            themeId: item.theme.id,
+            theme: item.theme.name,
+            color: item.theme.color,
+            dates: new Map([[date, 1]]),
+          });
+        }
+      }
+
+      const themeTrends = Array.from(
+        themeFeedbackMap.values()
+      ).flatMap((theme) =>
+        Array.from(theme.dates.entries()).map(
+          ([date, count]) => ({
+            themeId: theme.themeId,
+            theme: theme.theme,
+            color: theme.color,
+            date,
+            count,
+          })
+        )
+      );
+
     return NextResponse.json({
       summary: {
         totalFeedback,
@@ -154,6 +228,8 @@ export async function GET() {
       feedbackByStatus,
 
       feedbackOverTime,
+
+      themeTrends,
     });
   } catch (error) {
     console.error("Analytics error:", error);

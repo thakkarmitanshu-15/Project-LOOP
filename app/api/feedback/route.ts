@@ -5,6 +5,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { classifyFeedback } from "@/lib/ai";
+import { generateEmbedding } from "@/lib/embeddings";
 
 function parseCsvLine(line: string): string[] {
   const values: string[] = [];
@@ -229,6 +230,95 @@ const createFeedbackSchema = z.object({
   customerLabel: z.string().optional(),
 });
 
+async function generateAndSaveEmbedding(
+  feedbackId: string,
+  content: string,
+) {
+  try {
+    const vector = await generateEmbedding(content);
+
+    await prisma.embedding.upsert({
+      where: {
+        feedbackId,
+      },
+      update: {
+        vector: JSON.stringify(vector),
+      },
+      create: {
+        feedbackId,
+        vector: JSON.stringify(vector),
+      },
+    });
+
+    return true;
+  } catch (error) {
+    console.error(
+      `Embedding generation failed for feedback ${feedbackId}:`,
+      error,
+    );
+
+    return false;
+  }
+}
+
+async function resolveFeedbackThemes(
+  classificationThemes: string[],
+  workspaceId: string,
+) {
+  const resolvedThemes: Array<{
+    id: string;
+    name: string;
+    color: string | null;
+  }> = [];
+
+  for (const rawThemeName of classificationThemes) {
+    const themeName = rawThemeName.trim();
+    if (!themeName) continue;
+
+    const existingTheme = await prisma.theme.findFirst({
+      where: {
+        workspaceId,
+        name: {
+          equals: themeName,
+          mode: "insensitive",
+        },
+      },
+      select: {
+        id: true,
+        name: true,
+        color: true,
+      },
+    });
+
+    if (existingTheme) {
+      if (
+        !resolvedThemes.some(
+          (theme) => theme.id === existingTheme.id,
+        )
+      ) {
+        resolvedThemes.push(existingTheme);
+      }
+      continue;
+    }
+
+    const newTheme = await prisma.theme.create({
+      data: {
+        name: themeName,
+        workspaceId,
+      },
+      select: {
+        id: true,
+        name: true,
+        color: true,
+      },
+    });
+
+    resolvedThemes.push(newTheme);
+  }
+
+  return resolvedThemes;
+}
+
 export async function POST(request: Request) {
   try {
     const session = await getServerSession(authOptions);
@@ -268,8 +358,8 @@ export async function POST(request: Request) {
      * Step 1:
      * Save the feedback first.
      *
-     * This is important because AI failure should never
-     * prevent the customer's feedback from being stored.
+     * Feedback must never be lost because an AI service
+     * or embedding service is unavailable.
      */
     const feedback = await prisma.feedback.create({
       data: {
@@ -292,6 +382,18 @@ export async function POST(request: Request) {
 
     /*
      * Step 2:
+     * Generate and save the semantic embedding.
+     *
+     * Embedding failure must not prevent the feedback
+     * from being created.
+     */
+    const embeddingSaved = await generateAndSaveEmbedding(
+      feedback.id,
+      feedback.content,
+    );
+
+    /*
+     * Step 3:
      * Automatically classify the newly created feedback.
      */
     try {
@@ -308,39 +410,23 @@ export async function POST(request: Request) {
         },
       });
 
-      const themeNames = themes.map(
-        (theme) => theme.name,
-      );
-
       const classification = await classifyFeedback(
         feedback.content,
-        themeNames,
+        themes.map((theme) => theme.name),
       );
 
       /*
-       * Match AI-returned theme names against the
-       * actual themes in this workspace.
+       * Reuse an existing workspace theme when possible.
+       * If Claude suggests a genuinely new theme, create it
+       * inside this workspace and assign the feedback to it.
        */
-      const themeMap = new Map(
-        themes.map((theme) => [
-          theme.name.toLowerCase(),
-          theme,
-        ]),
+      const matchedThemes = await resolveFeedbackThemes(
+        classification.themes,
+        session.user.workspaceId,
       );
 
-      const matchedThemes = classification.themes
-        .map((themeName) =>
-          themeMap.get(themeName.toLowerCase()),
-        )
-        .filter(
-          (
-            theme,
-          ): theme is (typeof themes)[number] =>
-            Boolean(theme),
-        );
-
       /*
-       * Step 3:
+       * Step 4:
        * Save the AI classification and theme relationships.
        */
       await prisma.$transaction(async (tx) => {
@@ -370,8 +456,9 @@ export async function POST(request: Request) {
       });
 
       /*
+       * Step 5:
        * Return the newly created feedback together with
-       * its AI classification.
+       * its AI classification and embedding status.
        */
       return NextResponse.json(
         {
@@ -394,6 +481,7 @@ export async function POST(request: Request) {
             ),
           },
           classification,
+          embeddingSaved,
         },
         { status: 201 },
       );
@@ -401,8 +489,9 @@ export async function POST(request: Request) {
       /*
        * The feedback itself has already been saved.
        *
-       * If AI fails after both attempts, flag the record
-       * for manual review instead of deleting it.
+       * If AI classification fails after both attempts,
+       * flag the record for manual review instead of
+       * deleting it.
        */
       console.error(
         "Automatic AI classification failed:",
@@ -425,8 +514,11 @@ export async function POST(request: Request) {
             needsManualReview: true,
           },
           classification: null,
+          embeddingSaved,
           message:
-            "Feedback created successfully, but AI classification failed. The feedback has been flagged for manual review.",
+            embeddingSaved
+              ? "Feedback created successfully, but AI classification failed. The feedback has been flagged for manual review."
+              : "Feedback created successfully, but AI classification and embedding generation failed. The feedback has been flagged for manual review and its embedding can be generated later.",
         },
         { status: 201 },
       );
@@ -666,20 +758,143 @@ export async function PUT(request: Request) {
       );
     }
 
-    const result = await prisma.feedback.createMany({
-      data: validRows.map((row) => ({
-        content: row.content,
-        channel: row.channel,
-        customerLabel:
-          row.customerLabel || null,
-        sourceRef: row.sourceRef || null,
+    /*
+     * CSV feedback is inserted one record at a time instead
+     * of using createMany so each imported item can receive
+     * its own embedding.
+     *
+     * Embedding failures do not prevent the feedback from
+     * being imported.
+     */
+    let imported = 0;
+    let embeddingsSaved = 0;
+    let classified = 0;
+    let classificationPending = 0;
+
+    let themes = await prisma.theme.findMany({
+      where: {
         workspaceId: session.user.workspaceId,
-      })),
+      },
+      select: {
+        id: true,
+        name: true,
+      },
+      orderBy: {
+        name: "asc",
+      },
     });
+
+    for (const row of validRows) {
+      const feedback = await prisma.feedback.create({
+        data: {
+          content: row.content,
+          channel: row.channel,
+          customerLabel:
+            row.customerLabel || null,
+          sourceRef:
+            row.sourceRef || null,
+          workspaceId: session.user.workspaceId,
+        },
+        select: {
+          id: true,
+          content: true,
+        },
+      });
+
+      imported++;
+
+      const embeddingSaved =
+        await generateAndSaveEmbedding(
+          feedback.id,
+          feedback.content,
+        );
+
+      if (embeddingSaved) {
+        embeddingsSaved++;
+      }
+
+      try {
+        const classification = await classifyFeedback(
+          feedback.content,
+          themes.map((theme) => theme.name),
+        );
+
+        const matchedThemes = await resolveFeedbackThemes(
+          classification.themes,
+          session.user.workspaceId,
+        );
+
+        /*
+         * Refresh the available theme list so a newly created
+         * theme can be reused by the next CSV row.
+         */
+        themes = await prisma.theme.findMany({
+          where: {
+            workspaceId: session.user.workspaceId,
+          },
+          select: {
+            id: true,
+            name: true,
+          },
+          orderBy: {
+            name: "asc",
+          },
+        });
+
+        await prisma.$transaction(async (tx) => {
+          await tx.feedback.update({
+            where: {
+              id: feedback.id,
+            },
+            data: {
+              sentiment: classification.sentiment,
+              sentimentScore:
+                classification.sentimentScore,
+              featureArea: classification.featureArea,
+              aiRationale: classification.rationale,
+              needsManualReview: false,
+            },
+          });
+
+          if (matchedThemes.length > 0) {
+            await tx.feedbackTheme.createMany({
+              data: matchedThemes.map((theme) => ({
+                feedbackId: feedback.id,
+                themeId: theme.id,
+                confidence: 1,
+              })),
+            });
+          }
+        });
+
+        classified++;
+      } catch (classificationError) {
+        console.error(
+          `CSV AI classification failed for feedback ${feedback.id}:`,
+          classificationError,
+        );
+
+        await prisma.feedback.update({
+          where: {
+            id: feedback.id,
+          },
+          data: {
+            needsManualReview: true,
+          },
+        });
+
+        classificationPending++;
+      }
+    }
 
     return NextResponse.json({
       message: "CSV imported successfully",
-      imported: result.count,
+      imported,
+      classified,
+      classificationPending,
+      embeddingsSaved,
+      embeddingsPending:
+        imported - embeddingsSaved,
       errors,
     });
   } catch (error) {
