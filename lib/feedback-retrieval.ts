@@ -3,10 +3,30 @@ import { generateEmbedding } from "@/lib/embeddings";
 
 const MIN_SIMILARITY = 0.25;
 
+type FeedbackRecord = {
+  id: string;
+  content: string;
+  channel: string;
+  sentiment: "POS" | "NEU" | "NEG" | null;
+  sentimentScore: number | null;
+  status: "NEW" | "REVIEWED" | "ACTIONED";
+  createdAt: Date;
+};
+
+type EmbeddingRecord = {
+  feedbackId: string;
+  vector: string;
+  feedback: FeedbackRecord;
+};
+
+type SemanticFeedback = FeedbackRecord & {
+  similarity: number;
+};
+
 function cosineSimilarity(
   vectorA: number[],
   vectorB: number[],
-) {
+): number {
   if (vectorA.length !== vectorB.length) {
     return 0;
   }
@@ -31,7 +51,7 @@ function cosineSimilarity(
   );
 }
 
-function extractKeywords(question: string) {
+function extractKeywords(question: string): string[] {
   const stopWords = new Set([
     "what",
     "are",
@@ -76,69 +96,73 @@ export async function retrieveFeedbackSemantically(
   workspaceId: string,
   question: string,
   limit = 10,
-) {
+): Promise<SemanticFeedback[]> {
   const queryVector = await generateEmbedding(question);
 
-  const embeddings = await prisma.embedding.findMany({
-    where: {
-      feedback: {
-        workspaceId,
-      },
-    },
-    select: {
-      feedbackId: true,
-      vector: true,
-      feedback: {
-        select: {
-          id: true,
-          content: true,
-          channel: true,
-          sentiment: true,
-          sentimentScore: true,
-          status: true,
-          createdAt: true,
+  const embeddings: EmbeddingRecord[] =
+    await prisma.embedding.findMany({
+      where: {
+        feedback: {
+          workspaceId,
         },
       },
-    },
-  });
+      select: {
+        feedbackId: true,
+        vector: true,
+        feedback: {
+          select: {
+            id: true,
+            content: true,
+            channel: true,
+            sentiment: true,
+            sentimentScore: true,
+            status: true,
+            createdAt: true,
+          },
+        },
+      },
+    });
 
   const scoredFeedback = embeddings
-    .map((item) => {
-      let feedbackVector: number[];
+    .map(
+      (item: EmbeddingRecord): SemanticFeedback | null => {
+        let feedbackVector: number[];
 
-      try {
-        const parsedVector = JSON.parse(item.vector);
+        try {
+          const parsedVector: unknown =
+            JSON.parse(item.vector);
 
-        if (
-          !Array.isArray(parsedVector) ||
-          !parsedVector.every(
-            (value: unknown) =>
-              typeof value === "number" &&
-              Number.isFinite(value),
-          )
-        ) {
+          if (
+            !Array.isArray(parsedVector) ||
+            !parsedVector.every(
+              (value: unknown) =>
+                typeof value === "number" &&
+                Number.isFinite(value),
+            )
+          ) {
+            return null;
+          }
+
+          feedbackVector = parsedVector;
+        } catch {
           return null;
         }
 
-        feedbackVector = parsedVector;
-      } catch {
-        return null;
-      }
+        const score = cosineSimilarity(
+          queryVector,
+          feedbackVector,
+        );
 
-      const score = cosineSimilarity(
-        queryVector,
-        feedbackVector,
-      );
-
-      return {
-        ...item.feedback,
-        similarity: score,
-      };
-    })
+        return {
+          ...item.feedback,
+          similarity: score,
+        };
+      },
+    )
     .filter(
       (
         item,
-      ): item is NonNullable<typeof item> =>
+      ): item is SemanticFeedback =>
         item !== null &&
         item.similarity >= MIN_SIMILARITY,
     )
@@ -155,8 +179,9 @@ export async function retrieveFeedback(
   workspaceId: string,
   question: string,
   limit = 10,
-) {
-  const normalizedQuestion = question.toLowerCase();
+): Promise<FeedbackRecord[]> {
+  const normalizedQuestion =
+    question.toLowerCase();
 
   const complaintIntent =
     normalizedQuestion.includes("complaint") ||
@@ -171,7 +196,7 @@ export async function retrieveFeedback(
   const keywords = extractKeywords(question);
 
   if (complaintIntent) {
-    const negativeFeedback =
+    const negativeFeedback: FeedbackRecord[] =
       await prisma.feedback.findMany({
         where: {
           workspaceId,
@@ -201,48 +226,61 @@ export async function retrieveFeedback(
     return [];
   }
 
-  const feedback = await prisma.feedback.findMany({
-    where: {
-      workspaceId,
-      OR: keywords.map((keyword) => ({
-        content: {
-          contains: keyword,
-          mode: "insensitive",
-        },
-      })),
-    },
-    select: {
-      id: true,
-      content: true,
-      channel: true,
-      sentiment: true,
-      sentimentScore: true,
-      status: true,
-      createdAt: true,
-    },
-    orderBy: {
-      createdAt: "desc",
-    },
-    take: 50,
-  });
+  const feedback: FeedbackRecord[] =
+    await prisma.feedback.findMany({
+      where: {
+        workspaceId,
+        OR: keywords.map(
+          (keyword: string) => ({
+            content: {
+              contains: keyword,
+              mode: "insensitive",
+            },
+          }),
+        ),
+      },
+      select: {
+        id: true,
+        content: true,
+        channel: true,
+        sentiment: true,
+        sentimentScore: true,
+        status: true,
+        createdAt: true,
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+      take: 50,
+    });
 
   const scoredFeedback = feedback
-    .map((item) => {
-      const content = item.content.toLowerCase();
+    .map(
+      (item: FeedbackRecord) => {
+        const content =
+          item.content.toLowerCase();
 
-      const score = keywords.reduce(
-        (total, keyword) =>
-          total +
-          (content.includes(keyword) ? 1 : 0),
-        0,
-      );
+        const score = keywords.reduce(
+          (
+            total: number,
+            keyword: string,
+          ) =>
+            total +
+            (content.includes(keyword)
+              ? 1
+              : 0),
+          0,
+        );
 
-      return {
-        item,
-        score,
-      };
-    })
-    .filter((result) => result.score > 0)
+        return {
+          item,
+          score,
+        };
+      },
+    )
+    .filter(
+      (result) => result.score > 0,
+    )
     .sort((a, b) => {
       if (b.score !== a.score) {
         return b.score - a.score;
@@ -254,7 +292,9 @@ export async function retrieveFeedback(
       );
     })
     .slice(0, limit)
-    .map((result) => result.item);
+    .map(
+      (result) => result.item,
+    );
 
   return scoredFeedback;
 }
