@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { z } from "zod";
+import { Prisma } from "@prisma/client";
 
 import { generateVocReport } from "@/lib/ai";
 import { authOptions } from "@/lib/auth";
@@ -357,13 +358,23 @@ export async function GET(request: Request) {
         sentimentShift,
       },
 
-      topThemes: themes.map((theme) => ({
-        id: theme.id,
-        name: theme.name,
-        description: theme.description,
-        color: theme.color,
-        feedbackCount: theme._count.feedbackThemes,
-      })),
+      topThemes: themes.map(
+        (theme: {
+          id: string;
+          name: string;
+          description: string | null;
+          color: string | null;
+          _count: {
+            feedbackThemes: number;
+          };
+        }) => ({
+          id: theme.id,
+          name: theme.name,
+          description: theme.description,
+          color: theme.color,
+          feedbackCount: theme._count.feedbackThemes,
+        }),
+      ),
 
       recentFeedback,
 
@@ -678,12 +689,21 @@ export async function POST(request: Request) {
         negative: negativeFeedback,
       },
       sentimentShift,
-      themes.map((theme) => ({
-        name: theme.name,
-        description: theme.description,
-        feedbackCount:
-          theme._count.feedbackThemes,
-      })),
+      themes.map(
+        (theme: {
+          id: string;
+          name: string;
+          description: string | null;
+          _count: {
+            feedbackThemes: number;
+          };
+        }) => ({
+          name: theme.name,
+          description: theme.description,
+          feedbackCount:
+            theme._count.feedbackThemes,
+        }),
+      ),
       feedback,
     );
 
