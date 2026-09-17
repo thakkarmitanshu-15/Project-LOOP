@@ -166,8 +166,8 @@ export async function POST(
     });
 
     const themeNames = themes.map(
-      (theme) => theme.name,
-    );
+  (theme: { name: string }) => theme.name,
+);
 
     /*
      * Step 3:
