@@ -1,4 +1,3 @@
-import { Role } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import bcrypt from "bcryptjs";
@@ -63,7 +62,10 @@ export async function GET() {
 
     return NextResponse.json({ users });
   } catch (error) {
-    console.error("Workspace members GET error:", error);
+    console.error(
+      "Workspace members GET error:",
+      error,
+    );
 
     return NextResponse.json(
       { error: "Failed to load workspace members" },
@@ -85,20 +87,25 @@ export async function POST(request: Request) {
 
     if (session.user.role !== "ADMIN") {
       return NextResponse.json(
-        { error: "Only administrators can add workspace members" },
+        {
+          error:
+            "Only administrators can add workspace members",
+        },
         { status: 403 },
       );
     }
 
     const body: unknown = await request.json();
 
-    const validationResult = createMemberSchema.safeParse(body);
+    const validationResult =
+      createMemberSchema.safeParse(body);
 
     if (!validationResult.success) {
       return NextResponse.json(
         {
           error: "Invalid member data",
-          details: validationResult.error.flatten().fieldErrors,
+          details:
+            validationResult.error.flatten().fieldErrors,
         },
         { status: 400 },
       );
@@ -111,33 +118,43 @@ export async function POST(request: Request) {
       role,
     } = validationResult.data;
 
-    const existingUser = await prisma.user.findUnique({
-      where: {
-        email,
-      },
-      select: {
-        id: true,
-      },
-    });
+    const existingUser =
+      await prisma.user.findUnique({
+        where: {
+          email,
+        },
+        select: {
+          id: true,
+        },
+      });
 
     if (existingUser) {
       return NextResponse.json(
         {
-          error: "An account with this email already exists",
+          error:
+            "An account with this email already exists",
         },
         { status: 409 },
       );
     }
 
-    const passwordHash = await bcrypt.hash(password, 12);
+    const passwordHash = await bcrypt.hash(
+      password,
+      12,
+    );
 
     const user = await prisma.user.create({
       data: {
         name,
         email,
         passwordHash,
-        role: role === "ANALYST" ? Role.ANALYST : Role.VIEWER,
-        workspaceId: session.user.workspaceId,
+
+        // The schema already guarantees that role
+        // is either ANALYST or VIEWER.
+        role,
+
+        workspaceId:
+          session.user.workspaceId,
       },
       select: {
         id: true,
@@ -149,17 +166,22 @@ export async function POST(request: Request) {
 
     return NextResponse.json(
       {
-        message: "Workspace member created successfully",
+        message:
+          "Workspace member created successfully",
         user,
       },
       { status: 201 },
     );
   } catch (error) {
-    console.error("Workspace members POST error:", error);
+    console.error(
+      "Workspace members POST error:",
+      error,
+    );
 
     return NextResponse.json(
       {
-        error: "Failed to create workspace member",
+        error:
+          "Failed to create workspace member",
       },
       { status: 500 },
     );
