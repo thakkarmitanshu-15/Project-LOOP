@@ -140,10 +140,17 @@ export async function GET() {
           : 0,
     };
 
-    const feedbackByChannel = channelGroups.map((group) => ({
-      channel: group.channel,
-      count: group._count._all,
-    }));
+    const feedbackByChannel = channelGroups.map(
+  (group: {
+    channel: string;
+    _count: {
+      _all: number;
+    };
+  }) => ({
+    channel: group.channel,
+    count: group._count._all,
+  }),
+);
 
     const feedbackByStatus = statusGroups.map((group) => ({
       status: group.status,
