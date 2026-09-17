@@ -10,6 +10,16 @@ import {
 } from "@/lib/feedback-retrieval";
 import { askLoop } from "@/lib/ai";
 
+type AskFeedbackItem = {
+  id: string;
+  content: string;
+  channel: string;
+  sentiment: "POS" | "NEU" | "NEG" | null;
+  sentimentScore: number | null;
+  status: "NEW" | "REVIEWED" | "ACTIONED";
+  createdAt: Date;
+};
+
 const askSchema = z.object({
   question: z
     .string()
@@ -60,13 +70,12 @@ export async function POST(request: Request) {
       normalizedQuestion.includes("worst") ||
       normalizedQuestion.includes("pain point");
 
-    let feedback;
+    let feedback: AskFeedbackItem[] = [];
 
     if (complaintIntent) {
       feedback = await prisma.feedback.findMany({
         where: {
-          workspaceId:
-            session.user.workspaceId,
+          workspaceId: session.user.workspaceId,
           sentiment: "NEG",
         },
         select: {
@@ -92,7 +101,6 @@ export async function POST(request: Request) {
             10,
           );
 
-        // ✅ Removed unused similarity variable
         feedback = semanticFeedback;
       }
     } else {
@@ -104,7 +112,6 @@ export async function POST(request: Request) {
         );
 
       if (semanticFeedback.length > 0) {
-        // ✅ Removed unused similarity variable
         feedback = semanticFeedback;
       } else {
         feedback = await retrieveFeedback(
@@ -120,17 +127,21 @@ export async function POST(request: Request) {
       feedback,
     );
 
-    const feedbackById = new Map(
-      feedback.map((item) => [item.id, item]),
+    const feedbackById = new Map<
+      string,
+      AskFeedbackItem
+    >(
+      feedback.map((item) => [
+        item.id,
+        item,
+      ]),
     );
 
     const citedFeedback =
       result.feedbackIds
         .map((id) => feedbackById.get(id))
         .filter(
-          (
-            item,
-          ): item is (typeof feedback)[number] =>
+          (item): item is AskFeedbackItem =>
             Boolean(item),
         );
 
