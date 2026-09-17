@@ -1,11 +1,19 @@
 import { z } from "zod";
 
-if (!process.env.OPENROUTER_API_KEY) {
-  throw new Error("OPENROUTER_API_KEY is not configured");
+if (!process.env.GEMINI_API_KEY) {
+  throw new Error("GEMINI_API_KEY is not configured");
 }
 
-const OPENROUTER_URL =
-  "https://openrouter.ai/api/v1/chat/completions";
+const GEMINI_MODEL =
+  process.env.GEMINI_MODEL || "gemini-2.5-flash-lite";
+
+const GEMINI_URL =
+  `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
+
+/*
+ * Gemini is called only from the server-side AI service.
+ * The API key must never be exposed to the browser.
+ */
 
 const classificationSchema = z.object({
   sentiment: z.enum(["POS", "NEU", "NEG"]),
@@ -20,31 +28,32 @@ const askLoopSchema = z.object({
   feedbackIds: z.array(z.string()),
 });
 
-async function callOpenRouter(
+async function callGemini(
   system: string,
   user: string,
   maxTokens: number,
 ) {
-  const response = await fetch(OPENROUTER_URL, {
+  const response = await fetch(GEMINI_URL, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+      "x-goog-api-key": process.env.GEMINI_API_KEY as string,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: "openrouter/free",
-      temperature: 0,
-      max_tokens: maxTokens,
-      messages: [
-        {
-          role: "system",
-          content: system,
-        },
+      systemInstruction: {
+        parts: [{ text: system }],
+      },
+      contents: [
         {
           role: "user",
-          content: user,
+          parts: [{ text: user }],
         },
       ],
+      generationConfig: {
+        temperature: 0,
+        maxOutputTokens: maxTokens,
+        responseMimeType: "application/json",
+      },
     }),
   });
 
@@ -52,17 +61,30 @@ async function callOpenRouter(
     const errorText = await response.text();
 
     throw new Error(
-      `OpenRouter API error (${response.status}): ${errorText}`,
+      `Gemini API error (${response.status}): ${errorText}`,
     );
   }
 
   const data = await response.json();
 
-  const text = data?.choices?.[0]?.message?.content;
+  const parts =
+    data?.candidates?.[0]?.content?.parts;
 
-  if (typeof text !== "string" || !text.trim()) {
+  const text =
+    Array.isArray(parts)
+      ? parts
+          .map((part: { text?: unknown }) =>
+            typeof part?.text === "string"
+              ? part.text
+              : "",
+          )
+          .join("")
+          .trim()
+      : "";
+
+  if (!text) {
     throw new Error(
-      `OpenRouter returned no text response. Response: ${JSON.stringify(data)}`,
+      `Gemini returned no text response. Response: ${JSON.stringify(data)}`,
     );
   }
 
@@ -151,7 +173,7 @@ ${content}
 
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
-      const text = await callOpenRouter(
+      const text = await callGemini(
         system,
         user,
         300,
@@ -211,7 +233,7 @@ Content: ${item.content}
     )
     .join("\n");
 
-  const text = await callOpenRouter(
+  const text = await callGemini(
     `
 You are LOOP, a customer-feedback intelligence assistant.
 
@@ -458,7 +480,7 @@ Do not include any text before or after the JSON object.
 - The response must end with the } character.
 `;
 
-      const text = await callOpenRouter(
+      const text = await callGemini(
         system + retryInstruction,
         user,
         2000,

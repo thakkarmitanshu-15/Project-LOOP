@@ -34,7 +34,7 @@ type AnalyticsData = {
     count: number;
   }[];
 
-    themeTrends: {
+  themeTrends: {
     themeId: string;
     theme: string;
     color: string | null;
@@ -43,37 +43,122 @@ type AnalyticsData = {
   }[];
 };
 
-export default function Analytics() {
-  const [data, setData] = useState<AnalyticsData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+/*
+ * Fallback colors for themes that do not have a stored
+ * database color yet.
+ */
+const themeColorPalette = [
+  "#2563eb",
+  "#7c3aed",
+  "#059669",
+  "#dc2626",
+  "#d97706",
+  "#0891b2",
+  "#db2777",
+  "#4f46e5",
+  "#65a30d",
+  "#9333ea",
+  "#0284c7",
+  "#ea580c",
+];
 
- async function loadAnalytics() {
-  try {
-    setLoading(true);
-    setError("");
+/*
+ * Generate a stable color from the theme name.
+ *
+ * This means:
+ * "App Stability" will consistently receive
+ * the same fallback color every time.
+ */
+function getThemeColor(themeName: string): string {
+  let hash = 0;
 
-    const response = await fetch("/api/analytics");
-
-    if (!response.ok) {
-      throw new Error("Failed to load analytics");
-    }
-
-    const analytics: AnalyticsData =
-      await response.json();
-
-    setData(analytics);
-  } catch (error) {
-    console.error(error);
-    setError("Unable to load analytics");
-  } finally {
-    setLoading(false);
+  for (let index = 0; index < themeName.length; index++) {
+    hash =
+      (hash * 31 + themeName.charCodeAt(index)) | 0;
   }
+
+  return themeColorPalette[
+    Math.abs(hash) % themeColorPalette.length
+  ];
 }
 
-useEffect(() => {
-  loadAnalytics();
-}, []);
+export default function Analytics() {
+  const [data, setData] =
+    useState<AnalyticsData | null>(null);
+
+  const [loading, setLoading] =
+    useState(true);
+
+  const [error, setError] =
+    useState("");
+
+  async function loadAnalytics() {
+    try {
+      setLoading(true);
+      setError("");
+
+      const response =
+        await fetch("/api/analytics");
+
+      if (!response.ok) {
+        throw new Error(
+          "Failed to load analytics",
+        );
+      }
+
+      const analytics: AnalyticsData =
+        await response.json();
+
+      /*
+       * Make sure every theme has a color before
+       * passing the data to the ThemeTrendChart.
+       *
+       * Stored database colors are always preferred.
+       */
+      const themeColorMap =
+        new Map<string, string>();
+
+      analytics.themeTrends.forEach(
+        (item) => {
+          if (!themeColorMap.has(item.theme)) {
+            themeColorMap.set(
+              item.theme,
+              item.color ||
+                getThemeColor(item.theme),
+            );
+          }
+        },
+      );
+
+      const themeTrends =
+        analytics.themeTrends.map(
+          (item) => ({
+            ...item,
+            color:
+              item.color ||
+              themeColorMap.get(item.theme) ||
+              getThemeColor(item.theme),
+          }),
+        );
+
+      setData({
+        ...analytics,
+        themeTrends,
+      });
+    } catch (error) {
+      console.error(error);
+
+      setError(
+        "Unable to load analytics",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadAnalytics();
+  }, []);
 
   if (loading) {
     return (
@@ -85,45 +170,47 @@ useEffect(() => {
     );
   }
 
- if (error) {
-  return (
-    <div className="mt-8 rounded-xl border border-red-200 bg-red-50 p-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <p className="text-sm font-semibold text-red-800">
-            Unable to load analytics
-          </p>
+  if (error) {
+    return (
+      <div className="mt-8 rounded-xl border border-red-200 bg-red-50 p-6">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-sm font-semibold text-red-800">
+              Unable to load analytics
+            </p>
 
-          <p className="mt-1 text-xs text-red-600">
-            Please try again. If the problem continues, check your
-            connection or try again later.
-          </p>
+            <p className="mt-1 text-xs text-red-600">
+              Please try again. If the problem continues,
+              check your connection or try again later.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={loadAnalytics}
+            disabled={loading}
+            className="w-fit rounded-lg border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-700 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {loading
+              ? "Retrying..."
+              : "Try again"}
+          </button>
         </div>
-
-        <button
-          type="button"
-          onClick={loadAnalytics}
-          disabled={loading}
-          className="w-fit rounded-lg border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-700 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {loading ? "Retrying..." : "Try again"}
-        </button>
       </div>
-    </div>
-  );
-}
+    );
+  }
 
   if (!data) {
     return null;
   }
 
   const {
-  summary,
-  feedbackByChannel,
-  feedbackByStatus,
-  feedbackOverTime,
-  themeTrends,
-} = data;
+    summary,
+    feedbackByChannel,
+    feedbackByStatus,
+    feedbackOverTime,
+    themeTrends,
+  } = data;
 
   return (
     <section className="mt-8">
@@ -166,7 +253,9 @@ useEffect(() => {
 
       {/* Channel + Status */}
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
-        <ChannelChart data={feedbackByChannel} />
+        <ChannelChart
+          data={feedbackByChannel}
+        />
 
         <StatusCard
           data={feedbackByStatus}
@@ -176,7 +265,9 @@ useEffect(() => {
 
       {/* Trend + Sentiment */}
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
-        <FeedbackTrendChart data={feedbackOverTime} />
+        <FeedbackTrendChart
+          data={feedbackOverTime}
+        />
 
         <SentimentChart
           positive={summary.positiveFeedback}
@@ -187,7 +278,9 @@ useEffect(() => {
 
       {/* Theme Trends */}
       <div className="mt-6">
-        <ThemeTrendChart data={themeTrends} />
+        <ThemeTrendChart
+          data={themeTrends}
+        />
       </div>
     </section>
   );
@@ -229,6 +322,7 @@ function StatusCard({
     status: "NEW" | "REVIEWED" | "ACTIONED";
     count: number;
   }[];
+
   total: number;
 }) {
   return (
@@ -289,7 +383,10 @@ function StatusCard({
 }
 
 function formatStatus(
-  status: "NEW" | "REVIEWED" | "ACTIONED"
+  status:
+    | "NEW"
+    | "REVIEWED"
+    | "ACTIONED",
 ) {
   if (status === "NEW") {
     return "New";

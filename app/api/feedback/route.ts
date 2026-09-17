@@ -151,6 +151,7 @@ export async function GET(request: Request) {
                     ),
                   }
                 : {}),
+
               ...(dateTo
                 ? {
                     lte: new Date(
@@ -261,6 +262,41 @@ async function generateAndSaveEmbedding(
   }
 }
 
+/*
+ * Theme colors used when LOOP creates a new workspace theme.
+ *
+ * The color is selected deterministically from the theme name,
+ * so the same theme name receives the same color every time.
+ */
+const THEME_COLORS = [
+  "#2563EB",
+  "#7C3AED",
+  "#059669",
+  "#D97706",
+  "#DC2626",
+  "#0891B2",
+  "#DB2777",
+  "#4F46E5",
+  "#65A30D",
+  "#9333EA",
+  "#0284C7",
+  "#EA580C",
+];
+
+function getThemeColor(themeName: string): string {
+  let hash = 0;
+
+  for (let i = 0; i < themeName.length; i++) {
+    hash =
+      (hash * 31 + themeName.charCodeAt(i)) | 0;
+  }
+
+  const index =
+    Math.abs(hash) % THEME_COLORS.length;
+
+  return THEME_COLORS[index];
+}
+
 async function resolveFeedbackThemes(
   classificationThemes: string[],
   workspaceId: string,
@@ -273,6 +309,7 @@ async function resolveFeedbackThemes(
 
   for (const rawThemeName of classificationThemes) {
     const themeName = rawThemeName.trim();
+
     if (!themeName) continue;
 
     const existingTheme = await prisma.theme.findFirst({
@@ -291,19 +328,60 @@ async function resolveFeedbackThemes(
     });
 
     if (existingTheme) {
-      if (
+      /*
+       * Existing themes keep their current color.
+       *
+       * If an older theme has no color, assign one now so
+       * older themes also receive a distinct visual color.
+       */
+      if (!existingTheme.color) {
+        const color = getThemeColor(existingTheme.name);
+
+        const updatedTheme = await prisma.theme.update({
+          where: {
+            id: existingTheme.id,
+          },
+          data: {
+            color,
+          },
+          select: {
+            id: true,
+            name: true,
+            color: true,
+          },
+        });
+
+        if (
+          !resolvedThemes.some(
+            (theme) => theme.id === updatedTheme.id,
+          )
+        ) {
+          resolvedThemes.push(updatedTheme);
+        }
+      } else if (
         !resolvedThemes.some(
           (theme) => theme.id === existingTheme.id,
         )
       ) {
         resolvedThemes.push(existingTheme);
       }
+
       continue;
     }
+
+    /*
+     * This is a genuinely new theme.
+     *
+     * Give it a deterministic color immediately so the
+     * Themes page, Feedback page, dashboard and charts
+     * can display it distinctly.
+     */
+    const color = getThemeColor(themeName);
 
     const newTheme = await prisma.theme.create({
       data: {
         name: themeName,
+        color,
         workspaceId,
       },
       select: {
@@ -387,10 +465,11 @@ export async function POST(request: Request) {
      * Embedding failure must not prevent the feedback
      * from being created.
      */
-    const embeddingSaved = await generateAndSaveEmbedding(
-      feedback.id,
-      feedback.content,
-    );
+    const embeddingSaved =
+      await generateAndSaveEmbedding(
+        feedback.id,
+        feedback.content,
+      );
 
     /*
      * Step 3:
@@ -417,13 +496,14 @@ export async function POST(request: Request) {
 
       /*
        * Reuse an existing workspace theme when possible.
-       * If Claude suggests a genuinely new theme, create it
+       * If AI suggests a genuinely new theme, create it
        * inside this workspace and assign the feedback to it.
        */
-      const matchedThemes = await resolveFeedbackThemes(
-        classification.themes,
-        session.user.workspaceId,
-      );
+      const matchedThemes =
+        await resolveFeedbackThemes(
+          classification.themes,
+          session.user.workspaceId,
+        );
 
       /*
        * Step 4:
@@ -476,6 +556,7 @@ export async function POST(request: Request) {
                 theme: {
                   id: theme.id,
                   name: theme.name,
+                  color: theme.color,
                 },
               }),
             ),
@@ -561,7 +642,11 @@ export async function PATCH(request: Request) {
 
     const updateSchema = z.object({
       id: z.string().min(1),
-      status: z.enum(["NEW", "REVIEWED", "ACTIONED"]),
+      status: z.enum([
+        "NEW",
+        "REVIEWED",
+        "ACTIONED",
+      ]),
     });
 
     const validationResult =
@@ -579,7 +664,8 @@ export async function PATCH(request: Request) {
       );
     }
 
-    const { id, status } = validationResult.data;
+    const { id, status } =
+      validationResult.data;
 
     const existingFeedback =
       await prisma.feedback.findFirst({
@@ -611,11 +697,15 @@ export async function PATCH(request: Request) {
       });
 
     return NextResponse.json({
-      message: "Feedback status updated successfully",
+      message:
+        "Feedback status updated successfully",
       feedback: updatedFeedback,
     });
   } catch (error) {
-    console.error("Feedback update error:", error);
+    console.error(
+      "Feedback update error:",
+      error,
+    );
 
     return NextResponse.json(
       {
@@ -663,7 +753,9 @@ export async function PUT(request: Request) {
     const lines = body.csv
       .split(/\r?\n/)
       .map((line: string) => line.trim())
-      .filter((line: string) => line.length > 0);
+      .filter(
+        (line: string) => line.length > 0,
+      );
 
     if (lines.length < 2) {
       return NextResponse.json(
@@ -687,7 +779,8 @@ export async function PUT(request: Request) {
     ];
 
     if (
-      headers.length !== expectedHeaders.length ||
+      headers.length !==
+        expectedHeaders.length ||
       !expectedHeaders.every(
         (header, index) =>
           headers[index] === header,
@@ -714,13 +807,21 @@ export async function PUT(request: Request) {
       error: string;
     }[] = [];
 
-    for (let i = 1; i < lines.length; i++) {
+    for (
+      let i = 1;
+      i < lines.length;
+      i++
+    ) {
       const values = parseCsvLine(lines[i]);
 
-      if (values.length !== expectedHeaders.length) {
+      if (
+        values.length !==
+        expectedHeaders.length
+      ) {
         errors.push({
           row: i + 1,
-          error: "Incorrect number of columns",
+          error:
+            "Incorrect number of columns",
         });
 
         continue;
@@ -738,7 +839,8 @@ export async function PUT(request: Request) {
       if (!result.success) {
         errors.push({
           row: i + 1,
-          error: "Invalid feedback data",
+          error:
+            "Invalid feedback data",
         });
 
         continue;
@@ -750,7 +852,8 @@ export async function PUT(request: Request) {
     if (validRows.length === 0) {
       return NextResponse.json(
         {
-          error: "No valid feedback rows found",
+          error:
+            "No valid feedback rows found",
           imported: 0,
           errors,
         },
@@ -773,7 +876,8 @@ export async function PUT(request: Request) {
 
     let themes = await prisma.theme.findMany({
       where: {
-        workspaceId: session.user.workspaceId,
+        workspaceId:
+          session.user.workspaceId,
       },
       select: {
         id: true,
@@ -785,21 +889,23 @@ export async function PUT(request: Request) {
     });
 
     for (const row of validRows) {
-      const feedback = await prisma.feedback.create({
-        data: {
-          content: row.content,
-          channel: row.channel,
-          customerLabel:
-            row.customerLabel || null,
-          sourceRef:
-            row.sourceRef || null,
-          workspaceId: session.user.workspaceId,
-        },
-        select: {
-          id: true,
-          content: true,
-        },
-      });
+      const feedback =
+        await prisma.feedback.create({
+          data: {
+            content: row.content,
+            channel: row.channel,
+            customerLabel:
+              row.customerLabel || null,
+            sourceRef:
+              row.sourceRef || null,
+            workspaceId:
+              session.user.workspaceId,
+          },
+          select: {
+            id: true,
+            content: true,
+          },
+        });
 
       imported++;
 
@@ -814,15 +920,19 @@ export async function PUT(request: Request) {
       }
 
       try {
-        const classification = await classifyFeedback(
-          feedback.content,
-          themes.map((theme) => theme.name),
-        );
+        const classification =
+          await classifyFeedback(
+            feedback.content,
+            themes.map(
+              (theme) => theme.name,
+            ),
+          );
 
-        const matchedThemes = await resolveFeedbackThemes(
-          classification.themes,
-          session.user.workspaceId,
-        );
+        const matchedThemes =
+          await resolveFeedbackThemes(
+            classification.themes,
+            session.user.workspaceId,
+          );
 
         /*
          * Refresh the available theme list so a newly created
@@ -830,7 +940,8 @@ export async function PUT(request: Request) {
          */
         themes = await prisma.theme.findMany({
           where: {
-            workspaceId: session.user.workspaceId,
+            workspaceId:
+              session.user.workspaceId,
           },
           select: {
             id: true,
@@ -841,31 +952,43 @@ export async function PUT(request: Request) {
           },
         });
 
-        await prisma.$transaction(async (tx) => {
-          await tx.feedback.update({
-            where: {
-              id: feedback.id,
-            },
-            data: {
-              sentiment: classification.sentiment,
-              sentimentScore:
-                classification.sentimentScore,
-              featureArea: classification.featureArea,
-              aiRationale: classification.rationale,
-              needsManualReview: false,
-            },
-          });
-
-          if (matchedThemes.length > 0) {
-            await tx.feedbackTheme.createMany({
-              data: matchedThemes.map((theme) => ({
-                feedbackId: feedback.id,
-                themeId: theme.id,
-                confidence: 1,
-              })),
+        await prisma.$transaction(
+          async (tx) => {
+            await tx.feedback.update({
+              where: {
+                id: feedback.id,
+              },
+              data: {
+                sentiment:
+                  classification.sentiment,
+                sentimentScore:
+                  classification.sentimentScore,
+                featureArea:
+                  classification.featureArea,
+                aiRationale:
+                  classification.rationale,
+                needsManualReview: false,
+              },
             });
-          }
-        });
+
+            if (
+              matchedThemes.length > 0
+            ) {
+              await tx.feedbackTheme.createMany(
+                {
+                  data: matchedThemes.map(
+                    (theme) => ({
+                      feedbackId:
+                        feedback.id,
+                      themeId: theme.id,
+                      confidence: 1,
+                    }),
+                  ),
+                },
+              );
+            }
+          },
+        );
 
         classified++;
       } catch (classificationError) {
@@ -888,7 +1011,8 @@ export async function PUT(request: Request) {
     }
 
     return NextResponse.json({
-      message: "CSV imported successfully",
+      message:
+        "CSV imported successfully",
       imported,
       classified,
       classificationPending,
@@ -898,7 +1022,10 @@ export async function PUT(request: Request) {
       errors,
     });
   } catch (error) {
-    console.error("CSV import API error:", error);
+    console.error(
+      "CSV import API error:",
+      error,
+    );
 
     return NextResponse.json(
       {

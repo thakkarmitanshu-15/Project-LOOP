@@ -13,6 +13,30 @@ type Theme = {
   };
 };
 
+/*
+ * Fallback palette for themes that do not have a color stored yet.
+ * The API/database color is still preferred when it exists.
+ */
+const themeColorPalette = [
+  "#2563eb",
+  "#7c3aed",
+  "#059669",
+  "#dc2626",
+  "#d97706",
+  "#0891b2",
+  "#db2777",
+  "#4f46e5",
+  "#65a30d",
+  "#9333ea",
+];
+
+function getThemeColor(theme: Theme, index: number) {
+  return (
+    theme.color ||
+    themeColorPalette[index % themeColorPalette.length]
+  );
+}
+
 export default function ThemesPage() {
   const [themes, setThemes] = useState<Theme[]>([]);
   const [loading, setLoading] = useState(true);
@@ -22,6 +46,7 @@ export default function ThemesPage() {
     async function loadThemes() {
       try {
         setLoading(true);
+        setError("");
 
         const response = await fetch("/api/themes");
 
@@ -122,48 +147,53 @@ export default function ThemesPage() {
               </div>
             ) : (
               <section className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                {themes.map((theme) => (
-                  <a
-                    key={theme.id}
-                    href={`/feedback?themeId=${theme.id}`}
-                    className="group rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition duration-200 hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md"
-                  >
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="flex items-center gap-3">
-                        <span
-                          className="h-3 w-3 rounded-full ring-4 ring-slate-50"
-                          style={{
-                            backgroundColor:
-                              theme.color || "#64748b",
-                          }}
-                        />
+                {themes.map((theme, index) => {
+                  const themeColor = getThemeColor(theme, index);
 
-                        <h2 className="text-base font-semibold text-slate-950">
-                          {theme.name}
-                        </h2>
+                  return (
+                    <a
+                      key={theme.id}
+                      href={`/feedback?themeId=${theme.id}`}
+                      className="group rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition duration-200 hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md"
+                    >
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex min-w-0 items-center gap-3">
+                          <span
+                            className="h-3 w-3 shrink-0 rounded-full ring-4 ring-slate-50"
+                            style={{
+                              backgroundColor: themeColor,
+                            }}
+                            title={themeColor}
+                            aria-hidden="true"
+                          />
+
+                          <h2 className="truncate text-base font-semibold text-slate-950">
+                            {theme.name}
+                          </h2>
+                        </div>
+
+                        <span className="text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-slate-500">
+                          →
+                        </span>
                       </div>
 
-                      <span className="text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-slate-500">
-                        →
-                      </span>
-                    </div>
+                      <p className="mt-4 min-h-[48px] text-sm leading-6 text-slate-500">
+                        {theme.description ||
+                          "Customer feedback related to this theme."}
+                      </p>
 
-                    <p className="mt-4 min-h-[48px] text-sm leading-6 text-slate-500">
-                      {theme.description ||
-                        "Customer feedback related to this theme."}
-                    </p>
+                      <div className="mt-6 flex items-center justify-between border-t border-slate-100 pt-4">
+                        <span className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">
+                          Feedback
+                        </span>
 
-                    <div className="mt-6 flex items-center justify-between border-t border-slate-100 pt-4">
-                      <span className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">
-                        Feedback
-                      </span>
-
-                      <span className="text-sm font-bold text-slate-900">
-                        {theme._count.feedbackThemes}
-                      </span>
-                    </div>
-                  </a>
-                ))}
+                        <span className="text-sm font-bold text-slate-900">
+                          {theme._count.feedbackThemes}
+                        </span>
+                      </div>
+                    </a>
+                  );
+                })}
               </section>
             )}
           </>

@@ -6,7 +6,6 @@ import { generateVocReport } from "@/lib/ai";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 
-
 const reportQuerySchema = z.object({
   periodStart: z.coerce.date().optional(),
   periodEnd: z.coerce.date().optional(),
@@ -44,11 +43,31 @@ export async function GET(request: Request) {
 
     const now = new Date();
 
-    const periodEnd = validation.data.periodEnd ?? now;
+    const periodEnd = validation.data.periodEnd
+      ? new Date(validation.data.periodEnd)
+      : new Date(now);
 
-    const periodStart =
-      validation.data.periodStart ??
-      new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const periodStart = validation.data.periodStart
+      ? new Date(validation.data.periodStart)
+      : new Date(
+          now.getTime() - 30 * 24 * 60 * 60 * 1000,
+        );
+
+    /*
+     * The Reports UI sends calendar dates such as:
+     *
+     * 2026-08-18
+     * 2026-09-17
+     *
+     * Normalize them to cover the complete selected days.
+     */
+    if (validation.data.periodStart) {
+      periodStart.setUTCHours(0, 0, 0, 0);
+    }
+
+    if (validation.data.periodEnd) {
+      periodEnd.setUTCHours(23, 59, 59, 999);
+    }
 
     if (periodStart > periodEnd) {
       return NextResponse.json(
@@ -57,19 +76,20 @@ export async function GET(request: Request) {
       );
     }
 
-        const periodDuration =
-            periodEnd.getTime() - periodStart.getTime();
+    const periodDuration =
+      periodEnd.getTime() - periodStart.getTime();
 
-            const previousPeriodEnd = new Date(periodStart.getTime());
+    const previousPeriodEnd = new Date(
+      periodStart.getTime(),
+    );
 
-            const previousPeriodStart = new Date(
-            periodStart.getTime() - periodDuration,
-            );
+    const previousPeriodStart = new Date(
+      periodStart.getTime() - periodDuration,
+    );
 
     /*
      * Every query below is scoped to the authenticated workspace.
      */
-
     const feedbackWhere = {
       workspaceId: session.user.workspaceId,
       createdAt: {
@@ -78,165 +98,174 @@ export async function GET(request: Request) {
       },
     };
 
-   const [
-  totalFeedback,
-  positiveFeedback,
-  neutralFeedback,
-  negativeFeedback,
-  previousPositiveFeedback,
-  previousNeutralFeedback,
-  previousNegativeFeedback,
-  themes,
-  recentFeedback,
-  reports,
-] = await Promise.all([
-  prisma.feedback.count({
-    where: feedbackWhere,
-  }),
+    const [
+      totalFeedback,
+      positiveFeedback,
+      neutralFeedback,
+      negativeFeedback,
+      previousPositiveFeedback,
+      previousNeutralFeedback,
+      previousNegativeFeedback,
+      themes,
+      recentFeedback,
+      reports,
+    ] = await Promise.all([
+      prisma.feedback.count({
+        where: feedbackWhere,
+      }),
 
-  prisma.feedback.count({
-    where: {
-      ...feedbackWhere,
-      sentiment: "POS",
-    },
-  }),
+      prisma.feedback.count({
+        where: {
+          ...feedbackWhere,
+          sentiment: "POS",
+        },
+      }),
 
-  prisma.feedback.count({
-    where: {
-      ...feedbackWhere,
-      sentiment: "NEU",
-    },
-  }),
+      prisma.feedback.count({
+        where: {
+          ...feedbackWhere,
+          sentiment: "NEU",
+        },
+      }),
 
-  prisma.feedback.count({
-    where: {
-      ...feedbackWhere,
-      sentiment: "NEG",
-    },
-  }),
+      prisma.feedback.count({
+        where: {
+          ...feedbackWhere,
+          sentiment: "NEG",
+        },
+      }),
 
-  prisma.feedback.count({
-    where: {
-      workspaceId: session.user.workspaceId,
-      createdAt: {
-        gte: previousPeriodStart,
-        lte: previousPeriodEnd,
-      },
-      sentiment: "POS",
-    },
-  }),
+      prisma.feedback.count({
+        where: {
+          workspaceId: session.user.workspaceId,
+          createdAt: {
+            gte: previousPeriodStart,
+            lte: previousPeriodEnd,
+          },
+          sentiment: "POS",
+        },
+      }),
 
-  prisma.feedback.count({
-    where: {
-      workspaceId: session.user.workspaceId,
-      createdAt: {
-        gte: previousPeriodStart,
-        lte: previousPeriodEnd,
-      },
-      sentiment: "NEU",
-    },
-  }),
+      prisma.feedback.count({
+        where: {
+          workspaceId: session.user.workspaceId,
+          createdAt: {
+            gte: previousPeriodStart,
+            lte: previousPeriodEnd,
+          },
+          sentiment: "NEU",
+        },
+      }),
 
-  prisma.feedback.count({
-    where: {
-      workspaceId: session.user.workspaceId,
-      createdAt: {
-        gte: previousPeriodStart,
-        lte: previousPeriodEnd,
-      },
-      sentiment: "NEG",
-    },
-  }),
+      prisma.feedback.count({
+        where: {
+          workspaceId: session.user.workspaceId,
+          createdAt: {
+            gte: previousPeriodStart,
+            lte: previousPeriodEnd,
+          },
+          sentiment: "NEG",
+        },
+      }),
 
-  prisma.theme.findMany({
-    where: {
-      workspaceId: session.user.workspaceId,
-    },
-    select: {
-      id: true,
-      name: true,
-      description: true,
-      color: true,
-      _count: {
+      prisma.theme.findMany({
+        where: {
+          workspaceId: session.user.workspaceId,
+        },
         select: {
-          feedbackThemes: {
-            where: {
-              feedback: {
-                createdAt: {
-                  gte: periodStart,
-                  lte: periodEnd,
+          id: true,
+          name: true,
+          description: true,
+          color: true,
+          _count: {
+            select: {
+              feedbackThemes: {
+                where: {
+                  feedback: {
+                    createdAt: {
+                      gte: periodStart,
+                      lte: periodEnd,
+                    },
+                  },
                 },
               },
             },
           },
         },
-      },
-    },
-    orderBy: {
-      feedbackThemes: {
-        _count: "desc",
-      },
-    },
-    take: 10,
-  }),
+        orderBy: {
+          feedbackThemes: {
+            _count: "desc",
+          },
+        },
+        take: 10,
+      }),
 
-  prisma.feedback.findMany({
-    where: feedbackWhere,
-    select: {
-      id: true,
-      content: true,
-      channel: true,
-      sentiment: true,
-      sentimentScore: true,
-      createdAt: true,
-      feedbackThemes: {
+      prisma.feedback.findMany({
+        where: feedbackWhere,
         select: {
-          confidence: true,
-          theme: {
+          id: true,
+          content: true,
+          channel: true,
+          sentiment: true,
+          sentimentScore: true,
+          createdAt: true,
+          feedbackThemes: {
             select: {
-              id: true,
-              name: true,
+              confidence: true,
+              theme: {
+                select: {
+                  id: true,
+                  name: true,
+                },
+              },
             },
           },
         },
-      },
-    },
-    orderBy: {
-      createdAt: "desc",
-    },
-    take: 20,
-  }),
+        orderBy: {
+          createdAt: "desc",
+        },
+        take: 20,
+      }),
 
-  prisma.report.findMany({
-    where: {
-      workspaceId: session.user.workspaceId,
-    },
-    select: {
-      id: true,
-      title: true,
-      periodStart: true,
-      periodEnd: true,
-      createdAt: true,
-      generatedBy: true,
-    },
-    orderBy: {
-      createdAt: "desc",
-    },
-    take: 20,
-  }),
-]);
+      prisma.report.findMany({
+        where: {
+          workspaceId: session.user.workspaceId,
+        },
+        select: {
+          id: true,
+          title: true,
+          periodStart: true,
+          periodEnd: true,
+          createdAt: true,
+          generatedBy: true,
+        },
+        orderBy: {
+          createdAt: "desc",
+        },
+        take: 20,
+      }),
+    ]);
 
     const sentimentRate =
       totalFeedback > 0
         ? {
             positive: Number(
-              ((positiveFeedback / totalFeedback) * 100).toFixed(1),
+              (
+                (positiveFeedback / totalFeedback) *
+                100
+              ).toFixed(1),
             ),
             neutral: Number(
-              ((neutralFeedback / totalFeedback) * 100).toFixed(1),
+              (
+                (neutralFeedback / totalFeedback) *
+                100
+              ).toFixed(1),
             ),
             negative: Number(
-              ((negativeFeedback / totalFeedback) * 100).toFixed(1),
+              (
+                (negativeFeedback / totalFeedback) *
+                100
+              ).toFixed(1),
             ),
           }
         : {
@@ -245,46 +274,63 @@ export async function GET(request: Request) {
             negative: 0,
           };
 
-          const previousTotal =
-  previousPositiveFeedback +
-  previousNeutralFeedback +
-  previousNegativeFeedback;
+    const previousTotal =
+      previousPositiveFeedback +
+      previousNeutralFeedback +
+      previousNegativeFeedback;
 
-const previousSentimentRate =
-  previousTotal > 0
-    ? {
-        positive: Number(
-          ((previousPositiveFeedback / previousTotal) * 100).toFixed(1),
-        ),
-        neutral: Number(
-          ((previousNeutralFeedback / previousTotal) * 100).toFixed(1),
-        ),
-        negative: Number(
-          ((previousNegativeFeedback / previousTotal) * 100).toFixed(1),
-        ),
-      }
-    : {
-        positive: 0,
-        neutral: 0,
-        negative: 0,
-      };
+    const previousSentimentRate =
+      previousTotal > 0
+        ? {
+            positive: Number(
+              (
+                (previousPositiveFeedback /
+                  previousTotal) *
+                100
+              ).toFixed(1),
+            ),
+            neutral: Number(
+              (
+                (previousNeutralFeedback /
+                  previousTotal) *
+                100
+              ).toFixed(1),
+            ),
+            negative: Number(
+              (
+                (previousNegativeFeedback /
+                  previousTotal) *
+                100
+              ).toFixed(1),
+            ),
+          }
+        : {
+            positive: 0,
+            neutral: 0,
+            negative: 0,
+          };
 
-const sentimentShift = {
-    positive: Number(
+    const sentimentShift = {
+      positive: Number(
         (
-        sentimentRate.positive - previousSentimentRate.positive
+          sentimentRate.positive -
+          previousSentimentRate.positive
         ).toFixed(1),
-    ),
-    neutral: Number(
+      ),
+
+      neutral: Number(
         (
-        sentimentRate.neutral - previousSentimentRate.neutral
+          sentimentRate.neutral -
+          previousSentimentRate.neutral
         ).toFixed(1),
-    ),
-    negative: Number(
+      ),
+
+      negative: Number(
         (
-        sentimentRate.negative - previousSentimentRate.negative
+          sentimentRate.negative -
+          previousSentimentRate.negative
         ).toFixed(1),
-    ),
+      ),
     };
 
     return NextResponse.json({
@@ -298,17 +344,18 @@ const sentimentShift = {
         positiveFeedback,
         neutralFeedback,
         negativeFeedback,
+
         sentimentRate,
 
         previousPeriod: {
-            start: previousPeriodStart,
-            end: previousPeriodEnd,
-            totalFeedback: previousTotal,
-            sentimentRate: previousSentimentRate,
+          start: previousPeriodStart,
+          end: previousPeriodEnd,
+          totalFeedback: previousTotal,
+          sentimentRate: previousSentimentRate,
         },
 
         sentimentShift,
-},
+      },
 
       topThemes: themes.map((theme) => ({
         id: theme.id,
@@ -330,8 +377,6 @@ const sentimentShift = {
       { status: 500 },
     );
   }
-
-  
 }
 
 export async function POST(request: Request) {
@@ -559,10 +604,12 @@ export async function POST(request: Request) {
               (positiveFeedback /
                 currentTotal) *
               100,
+
             neutral:
               (neutralFeedback /
                 currentTotal) *
               100,
+
             negative:
               (negativeFeedback /
                 currentTotal) *
@@ -581,10 +628,12 @@ export async function POST(request: Request) {
               (previousPositiveFeedback /
                 previousTotal) *
               100,
+
             neutral:
               (previousNeutralFeedback /
                 previousTotal) *
               100,
+
             negative:
               (previousNegativeFeedback /
                 previousTotal) *
@@ -603,12 +652,14 @@ export async function POST(request: Request) {
           previousSentimentRate.positive
         ).toFixed(1),
       ),
+
       neutral: Number(
         (
           sentimentRate.neutral -
           previousSentimentRate.neutral
         ).toFixed(1),
       ),
+
       negative: Number(
         (
           sentimentRate.negative -
@@ -646,6 +697,7 @@ export async function POST(request: Request) {
           workspaceId,
           generatedBy: session.user.id,
         },
+
         select: {
           id: true,
           title: true,
@@ -672,12 +724,9 @@ export async function POST(request: Request) {
 
     return NextResponse.json(
       {
-        error:
-          "Failed to generate report",
+        error: "Failed to generate report",
       },
       { status: 500 },
     );
   }
 }
-
-

@@ -1,15 +1,14 @@
-const OPENROUTER_EMBEDDINGS_URL =
-  "https://openrouter.ai/api/v1/embeddings";
+const GEMINI_EMBEDDING_MODEL = "gemini-embedding-001";
 
-const EMBEDDING_MODEL =
-  "nvidia/nemotron-3-embed-1b:free";
+const GEMINI_EMBEDDING_URL =
+  `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_EMBEDDING_MODEL}:embedContent`;
 
 export async function generateEmbedding(
   text: string,
 ): Promise<number[]> {
-  if (!process.env.OPENROUTER_API_KEY) {
+  if (!process.env.GEMINI_API_KEY) {
     throw new Error(
-      "OPENROUTER_API_KEY is not configured",
+      "GEMINI_API_KEY is not configured",
     );
   }
 
@@ -22,17 +21,22 @@ export async function generateEmbedding(
   }
 
   const response = await fetch(
-    OPENROUTER_EMBEDDINGS_URL,
+    GEMINI_EMBEDDING_URL,
     {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+        "x-goog-api-key": process.env.GEMINI_API_KEY,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: EMBEDDING_MODEL,
-        input: cleanedText,
-        encoding_format: "float",
+        content: {
+          parts: [
+            {
+              text: cleanedText,
+            },
+          ],
+        },
+        outputDimensionality: 768,
       }),
     },
   );
@@ -41,14 +45,14 @@ export async function generateEmbedding(
     const errorText = await response.text();
 
     throw new Error(
-      `Embedding API error (${response.status}): ${errorText}`,
+      `Gemini Embedding API error (${response.status}): ${errorText}`,
     );
   }
 
   const data = await response.json();
 
   const embedding =
-    data?.data?.[0]?.embedding;
+    data?.embedding?.values;
 
   if (
     !Array.isArray(embedding) ||
@@ -60,7 +64,7 @@ export async function generateEmbedding(
     )
   ) {
     throw new Error(
-      `Embedding API returned an invalid vector: ${JSON.stringify(data)}`,
+      `Gemini Embedding API returned an invalid vector: ${JSON.stringify(data)}`,
     );
   }
 
