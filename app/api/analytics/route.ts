@@ -3,6 +3,20 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 
+type ChannelGroup = {
+  channel: string;
+  _count: {
+    _all: number;
+  };
+};
+
+type StatusGroup = {
+  status: "NEW" | "REVIEWED" | "ACTIONED";
+  _count: {
+    _all: number;
+  };
+};
+
 export async function GET() {
   try {
     const session = await getServerSession(authOptions);
@@ -10,7 +24,7 @@ export async function GET() {
     if (!session?.user?.workspaceId) {
       return NextResponse.json(
         { error: "Unauthorized" },
-        { status: 401 }
+        { status: 401 },
       );
     }
 
@@ -91,31 +105,31 @@ export async function GET() {
       }),
 
       prisma.feedbackTheme.findMany({
-      where: {
-        feedback: {
-          workspaceId,
-        },
-      },
-      select: {
-        theme: {
-          select: {
-            id: true,
-            name: true,
-            color: true,
+        where: {
+          feedback: {
+            workspaceId,
           },
         },
-        feedback: {
-          select: {
-            createdAt: true,
+        select: {
+          theme: {
+            select: {
+              id: true,
+              name: true,
+              color: true,
+            },
+          },
+          feedback: {
+            select: {
+              createdAt: true,
+            },
           },
         },
-      },
-      orderBy: {
-        feedback: {
-          createdAt: "asc",
+        orderBy: {
+          feedback: {
+            createdAt: "asc",
+          },
         },
-      },
-    }),
+      }),
     ]);
 
     const sentimentTotal =
@@ -126,33 +140,45 @@ export async function GET() {
     const sentimentPercentages = {
       positive:
         sentimentTotal > 0
-          ? Number(((positiveFeedback / sentimentTotal) * 100).toFixed(1))
+          ? Number(
+              (
+                (positiveFeedback / sentimentTotal) *
+                100
+              ).toFixed(1),
+            )
           : 0,
 
       neutral:
         sentimentTotal > 0
-          ? Number(((neutralFeedback / sentimentTotal) * 100).toFixed(1))
+          ? Number(
+              (
+                (neutralFeedback / sentimentTotal) *
+                100
+              ).toFixed(1),
+            )
           : 0,
 
       negative:
         sentimentTotal > 0
-          ? Number(((negativeFeedback / sentimentTotal) * 100).toFixed(1))
+          ? Number(
+              (
+                (negativeFeedback / sentimentTotal) *
+                100
+              ).toFixed(1),
+            )
           : 0,
     };
 
-    const feedbackByChannel = channelGroups.map(
-  (group: {
-    channel: string;
-    _count: {
-      _all: number;
-    };
-  }) => ({
-    channel: group.channel,
-    count: group._count._all,
-  }),
-);
+    const feedbackByChannel = (
+      channelGroups as ChannelGroup[]
+    ).map((group) => ({
+      channel: group.channel,
+      count: group._count._all,
+    }));
 
-    const feedbackByStatus = statusGroups.map((group) => ({
+    const feedbackByStatus = (
+      statusGroups as StatusGroup[]
+    ).map((group) => ({
       status: group.status,
       count: group._count._all,
     }));
@@ -160,66 +186,70 @@ export async function GET() {
     const feedbackByDateMap = new Map<string, number>();
 
     for (const feedback of dailyFeedback) {
-      const date = feedback.createdAt.toISOString().slice(0, 10);
+      const date = feedback.createdAt
+        .toISOString()
+        .slice(0, 10);
 
       feedbackByDateMap.set(
         date,
-        (feedbackByDateMap.get(date) || 0) + 1
+        (feedbackByDateMap.get(date) || 0) + 1,
       );
     }
 
     const feedbackOverTime = Array.from(
-      feedbackByDateMap.entries()
+      feedbackByDateMap.entries(),
     ).map(([date, count]) => ({
       date,
       count,
     }));
 
     const themeFeedbackMap = new Map<
-        string,
-        {
-          themeId: string;
-          theme: string;
-          color: string | null;
-          dates: Map<string, number>;
-        }
-      >();
-
-      for (const item of themeFeedback) {
-        const date = item.feedback.createdAt
-          .toISOString()
-          .slice(0, 10);
-
-        const existing = themeFeedbackMap.get(item.theme.id);
-
-        if (existing) {
-          existing.dates.set(
-            date,
-            (existing.dates.get(date) || 0) + 1
-          );
-        } else {
-          themeFeedbackMap.set(item.theme.id, {
-            themeId: item.theme.id,
-            theme: item.theme.name,
-            color: item.theme.color,
-            dates: new Map([[date, 1]]),
-          });
-        }
+      string,
+      {
+        themeId: string;
+        theme: string;
+        color: string | null;
+        dates: Map<string, number>;
       }
+    >();
 
-      const themeTrends = Array.from(
-        themeFeedbackMap.values()
-      ).flatMap((theme) =>
-        Array.from(theme.dates.entries()).map(
-          ([date, count]) => ({
-            themeId: theme.themeId,
-            theme: theme.theme,
-            color: theme.color,
-            date,
-            count,
-          })
-        )
+    for (const item of themeFeedback) {
+      const date = item.feedback.createdAt
+        .toISOString()
+        .slice(0, 10);
+
+      const existing = themeFeedbackMap.get(
+        item.theme.id,
       );
+
+      if (existing) {
+        existing.dates.set(
+          date,
+          (existing.dates.get(date) || 0) + 1,
+        );
+      } else {
+        themeFeedbackMap.set(item.theme.id, {
+          themeId: item.theme.id,
+          theme: item.theme.name,
+          color: item.theme.color,
+          dates: new Map([[date, 1]]),
+        });
+      }
+    }
+
+    const themeTrends = Array.from(
+      themeFeedbackMap.values(),
+    ).flatMap((theme) =>
+      Array.from(theme.dates.entries()).map(
+        ([date, count]) => ({
+          themeId: theme.themeId,
+          theme: theme.theme,
+          color: theme.color,
+          date,
+          count,
+        }),
+      ),
+    );
 
     return NextResponse.json({
       summary: {
@@ -243,7 +273,7 @@ export async function GET() {
 
     return NextResponse.json(
       { error: "Failed to load analytics" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
