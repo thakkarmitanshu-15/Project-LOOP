@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getServerSession } from "next-auth";
+import { Prisma } from "@prisma/client";
 
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
@@ -146,17 +147,13 @@ export async function GET(request: Request) {
             createdAt: {
               ...(dateFrom
                 ? {
-                    gte: new Date(
-                      `${dateFrom}T00:00:00.000Z`,
-                    ),
+                    gte: new Date(`${dateFrom}T00:00:00.000Z`),
                   }
                 : {}),
 
               ...(dateTo
                 ? {
-                    lte: new Date(
-                      `${dateTo}T23:59:59.999Z`,
-                    ),
+                    lte: new Date(`${dateTo}T23:59:59.999Z`),
                   }
                 : {}),
             },
@@ -287,12 +284,10 @@ function getThemeColor(themeName: string): string {
   let hash = 0;
 
   for (let i = 0; i < themeName.length; i++) {
-    hash =
-      (hash * 31 + themeName.charCodeAt(i)) | 0;
+    hash = (hash * 31 + themeName.charCodeAt(i)) | 0;
   }
 
-  const index =
-    Math.abs(hash) % THEME_COLORS.length;
+  const index = Math.abs(hash) % THEME_COLORS.length;
 
   return THEME_COLORS[index];
 }
@@ -465,11 +460,10 @@ export async function POST(request: Request) {
      * Embedding failure must not prevent the feedback
      * from being created.
      */
-    const embeddingSaved =
-      await generateAndSaveEmbedding(
-        feedback.id,
-        feedback.content,
-      );
+    const embeddingSaved = await generateAndSaveEmbedding(
+      feedback.id,
+      feedback.content,
+    );
 
     /*
      * Step 3:
@@ -491,7 +485,9 @@ export async function POST(request: Request) {
 
       const classification = await classifyFeedback(
         feedback.content,
-        themes.map((theme) => theme.name),
+        themes.map(
+          (theme: { id: string; name: string }) => theme.name,
+        ),
       );
 
       /*
@@ -499,41 +495,41 @@ export async function POST(request: Request) {
        * If AI suggests a genuinely new theme, create it
        * inside this workspace and assign the feedback to it.
        */
-      const matchedThemes =
-        await resolveFeedbackThemes(
-          classification.themes,
-          session.user.workspaceId,
-        );
+      const matchedThemes = await resolveFeedbackThemes(
+        classification.themes,
+        session.user.workspaceId,
+      );
 
       /*
        * Step 4:
        * Save the AI classification and theme relationships.
        */
-      await prisma.$transaction(async (tx) => {
-        await tx.feedback.update({
-          where: {
-            id: feedback.id,
-          },
-          data: {
-            sentiment: classification.sentiment,
-            sentimentScore:
-              classification.sentimentScore,
-            featureArea: classification.featureArea,
-            aiRationale: classification.rationale,
-            needsManualReview: false,
-          },
-        });
-
-        if (matchedThemes.length > 0) {
-          await tx.feedbackTheme.createMany({
-            data: matchedThemes.map((theme) => ({
-              feedbackId: feedback.id,
-              themeId: theme.id,
-              confidence: 1,
-            })),
+      await prisma.$transaction(
+        async (tx: Prisma.TransactionClient) => {
+          await tx.feedback.update({
+            where: {
+              id: feedback.id,
+            },
+            data: {
+              sentiment: classification.sentiment,
+              sentimentScore: classification.sentimentScore,
+              featureArea: classification.featureArea,
+              aiRationale: classification.rationale,
+              needsManualReview: false,
+            },
           });
-        }
-      });
+
+          if (matchedThemes.length > 0) {
+            await tx.feedbackTheme.createMany({
+              data: matchedThemes.map((theme) => ({
+                feedbackId: feedback.id,
+                themeId: theme.id,
+                confidence: 1,
+              })),
+            });
+          }
+        },
+      );
 
       /*
        * Step 5:
@@ -545,8 +541,7 @@ export async function POST(request: Request) {
           feedback: {
             ...feedback,
             sentiment: classification.sentiment,
-            sentimentScore:
-              classification.sentimentScore,
+            sentimentScore: classification.sentimentScore,
             featureArea: classification.featureArea,
             aiRationale: classification.rationale,
             needsManualReview: false,
@@ -596,10 +591,9 @@ export async function POST(request: Request) {
           },
           classification: null,
           embeddingSaved,
-          message:
-            embeddingSaved
-              ? "Feedback created successfully, but AI classification failed. The feedback has been flagged for manual review."
-              : "Feedback created successfully, but AI classification and embedding generation failed. The feedback has been flagged for manual review and its embedding can be generated later.",
+          message: embeddingSaved
+            ? "Feedback created successfully, but AI classification failed. The feedback has been flagged for manual review."
+            : "Feedback created successfully, but AI classification and embedding generation failed. The feedback has been flagged for manual review and its embedding can be generated later.",
         },
         { status: 201 },
       );
@@ -609,8 +603,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json(
       {
-        error:
-          "Something went wrong while creating feedback",
+        error: "Something went wrong while creating feedback",
       },
       { status: 500 },
     );
@@ -631,8 +624,7 @@ export async function PATCH(request: Request) {
     if (session.user.role === "VIEWER") {
       return NextResponse.json(
         {
-          error:
-            "You do not have permission to update feedback",
+          error: "You do not have permission to update feedback",
         },
         { status: 403 },
       );
@@ -649,23 +641,20 @@ export async function PATCH(request: Request) {
       ]),
     });
 
-    const validationResult =
-      updateSchema.safeParse(body);
+    const validationResult = updateSchema.safeParse(body);
 
     if (!validationResult.success) {
       return NextResponse.json(
         {
           error: "Invalid input",
           details:
-            validationResult.error.flatten()
-              .fieldErrors,
+            validationResult.error.flatten().fieldErrors,
         },
         { status: 400 },
       );
     }
 
-    const { id, status } =
-      validationResult.data;
+    const { id, status } = validationResult.data;
 
     const existingFeedback =
       await prisma.feedback.findFirst({
@@ -697,8 +686,7 @@ export async function PATCH(request: Request) {
       });
 
     return NextResponse.json({
-      message:
-        "Feedback status updated successfully",
+      message: "Feedback status updated successfully",
       feedback: updatedFeedback,
     });
   } catch (error) {
@@ -709,8 +697,7 @@ export async function PATCH(request: Request) {
 
     return NextResponse.json(
       {
-        error:
-          "Something went wrong while updating feedback",
+        error: "Something went wrong while updating feedback",
       },
       { status: 500 },
     );
@@ -768,7 +755,7 @@ export async function PUT(request: Request) {
     }
 
     const headers = parseCsvLine(lines[0]).map(
-      (header) => header.trim(),
+      (header: string) => header.trim(),
     );
 
     const expectedHeaders = [
@@ -779,8 +766,7 @@ export async function PUT(request: Request) {
     ];
 
     if (
-      headers.length !==
-        expectedHeaders.length ||
+      headers.length !== expectedHeaders.length ||
       !expectedHeaders.every(
         (header, index) =>
           headers[index] === header,
@@ -820,8 +806,7 @@ export async function PUT(request: Request) {
       ) {
         errors.push({
           row: i + 1,
-          error:
-            "Incorrect number of columns",
+          error: "Incorrect number of columns",
         });
 
         continue;
@@ -839,8 +824,7 @@ export async function PUT(request: Request) {
       if (!result.success) {
         errors.push({
           row: i + 1,
-          error:
-            "Invalid feedback data",
+          error: "Invalid feedback data",
         });
 
         continue;
@@ -852,8 +836,7 @@ export async function PUT(request: Request) {
     if (validRows.length === 0) {
       return NextResponse.json(
         {
-          error:
-            "No valid feedback rows found",
+          error: "No valid feedback rows found",
           imported: 0,
           errors,
         },
@@ -924,7 +907,9 @@ export async function PUT(request: Request) {
           await classifyFeedback(
             feedback.content,
             themes.map(
-              (theme) => theme.name,
+              (
+                theme: { id: string; name: string },
+              ) => theme.name,
             ),
           );
 
@@ -953,7 +938,7 @@ export async function PUT(request: Request) {
         });
 
         await prisma.$transaction(
-          async (tx) => {
+          async (tx: Prisma.TransactionClient) => {
             await tx.feedback.update({
               where: {
                 id: feedback.id,
@@ -974,18 +959,16 @@ export async function PUT(request: Request) {
             if (
               matchedThemes.length > 0
             ) {
-              await tx.feedbackTheme.createMany(
-                {
-                  data: matchedThemes.map(
-                    (theme) => ({
-                      feedbackId:
-                        feedback.id,
-                      themeId: theme.id,
-                      confidence: 1,
-                    }),
-                  ),
-                },
-              );
+              await tx.feedbackTheme.createMany({
+                data: matchedThemes.map(
+                  (theme) => ({
+                    feedbackId:
+                      feedback.id,
+                    themeId: theme.id,
+                    confidence: 1,
+                  }),
+                ),
+              });
             }
           },
         );
@@ -1011,8 +994,7 @@ export async function PUT(request: Request) {
     }
 
     return NextResponse.json({
-      message:
-        "CSV imported successfully",
+      message: "CSV imported successfully",
       imported,
       classified,
       classificationPending,
