@@ -1,9 +1,9 @@
-import { Role } from "@prisma/client";
 import { NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
-import { prisma } from "@/lib/db";
 
+import { prisma } from "@/lib/db";
 
 const signupSchema = z.object({
   name: z
@@ -40,64 +40,87 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           error: "Invalid input",
-          details: validationResult.error.flatten().fieldErrors,
+          details:
+            validationResult.error.flatten().fieldErrors,
         },
         { status: 400 },
       );
     }
 
-    const { name, email, password, workspaceName } = validationResult.data;
+    const {
+      name,
+      email,
+      password,
+      workspaceName,
+    } = validationResult.data;
 
-    const existingUser = await prisma.user.findUnique({
-      where: {
-        email,
-      },
-    });
+    const existingUser =
+      await prisma.user.findUnique({
+        where: {
+          email,
+        },
+      });
 
     if (existingUser) {
       return NextResponse.json(
         {
-          error: "An account with this email already exists",
+          error:
+            "An account with this email already exists",
         },
         { status: 409 },
       );
     }
 
-    const passwordHash = await bcrypt.hash(password, 12);
+    const passwordHash = await bcrypt.hash(
+      password,
+      12,
+    );
 
-    const transactionResult = await prisma.$transaction(async (tx) => {
-      const workspace = await tx.workspace.create({
-        data: {
-          name: workspaceName,
+    const transactionResult =
+      await prisma.$transaction(
+        async (tx: Prisma.TransactionClient) => {
+          const workspace =
+            await tx.workspace.create({
+              data: {
+                name: workspaceName,
+              },
+            });
+
+          const user = await tx.user.create({
+            data: {
+              name,
+              email,
+              passwordHash,
+
+              // The first user in a new workspace
+              // becomes the workspace administrator.
+              role: "ADMIN",
+
+              workspaceId: workspace.id,
+            },
+          });
+
+          return {
+            workspace,
+            user,
+          };
         },
-      });
-
-      const user = await tx.user.create({
-        data: {
-          name,
-          email,
-          passwordHash,
-          role: Role.ADMIN,
-          workspaceId: workspace.id,
-        },
-      });
-
-      return {
-        workspace,
-        user,
-      };
-    });
+      );
 
     return NextResponse.json(
       {
-        message: "Account and workspace created successfully",
+        message:
+          "Account and workspace created successfully",
+
         user: {
           id: transactionResult.user.id,
           name: transactionResult.user.name,
           email: transactionResult.user.email,
           role: transactionResult.user.role,
-          workspaceId: transactionResult.user.workspaceId,
+          workspaceId:
+            transactionResult.user.workspaceId,
         },
+
         workspace: {
           id: transactionResult.workspace.id,
           name: transactionResult.workspace.name,
@@ -110,7 +133,8 @@ export async function POST(request: Request) {
 
     return NextResponse.json(
       {
-        error: "Something went wrong while creating your account",
+        error:
+          "Something went wrong while creating your account",
       },
       { status: 500 },
     );
