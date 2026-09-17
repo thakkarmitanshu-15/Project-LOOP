@@ -1,12 +1,11 @@
-import {
-  PrismaClient,
-  Role,
-  Sentiment,
-  FeedbackStatus,
-} from "@prisma/client";
+import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 
 const prisma = new PrismaClient();
+
+type SeedRole = "ADMIN" | "ANALYST" | "VIEWER";
+type SeedSentiment = "POS" | "NEU" | "NEG";
+type SeedStatus = "NEW" | "REVIEWED" | "ACTIONED";
 
 const channels = [
   "Support",
@@ -55,88 +54,93 @@ const themes = [
   },
 ];
 
-const feedbackTemplates = [
+const feedbackTemplates: Array<{
+  content: string;
+  sentiment: SeedSentiment;
+  sentimentScore: number;
+  theme: string;
+}> = [
   {
     content:
       "The onboarding process was confusing and I wasn't sure what to do next.",
-    sentiment: Sentiment.NEG,
+    sentiment: "NEG",
     sentimentScore: -0.78,
     theme: "Onboarding",
   },
   {
     content:
       "Getting started was surprisingly easy and the setup guide was helpful.",
-    sentiment: Sentiment.POS,
+    sentiment: "POS",
     sentimentScore: 0.82,
     theme: "Onboarding",
   },
   {
     content:
       "The dashboard takes too long to load when I have a lot of data.",
-    sentiment: Sentiment.NEG,
+    sentiment: "NEG",
     sentimentScore: -0.71,
     theme: "Performance",
   },
   {
     content:
       "The application feels fast and responsive compared with the previous version.",
-    sentiment: Sentiment.POS,
+    sentiment: "POS",
     sentimentScore: 0.76,
     theme: "Performance",
   },
   {
     content:
       "I was charged twice for the same subscription.",
-    sentiment: Sentiment.NEG,
+    sentiment: "NEG",
     sentimentScore: -0.91,
     theme: "Billing",
   },
   {
     content:
       "The billing information is clear and the invoices are easy to download.",
-    sentiment: Sentiment.POS,
+    sentiment: "POS",
     sentimentScore: 0.74,
     theme: "Billing",
   },
   {
     content:
       "I keep getting logged out when I try to access my account.",
-    sentiment: Sentiment.NEG,
+    sentiment: "NEG",
     sentimentScore: -0.84,
     theme: "Authentication",
   },
   {
     content:
       "Login worked perfectly and setting up my account was straightforward.",
-    sentiment: Sentiment.POS,
+    sentiment: "POS",
     sentimentScore: 0.79,
     theme: "Authentication",
   },
   {
     content:
       "The mobile app crashes whenever I open the reports section.",
-    sentiment: Sentiment.NEG,
+    sentiment: "NEG",
     sentimentScore: -0.88,
     theme: "Mobile Experience",
   },
   {
     content:
       "The mobile experience is convenient and makes checking updates much easier.",
-    sentiment: Sentiment.POS,
+    sentiment: "POS",
     sentimentScore: 0.81,
     theme: "Mobile Experience",
   },
   {
     content:
       "The dashboard has useful information but I would like more filtering options.",
-    sentiment: Sentiment.NEU,
+    sentiment: "NEU",
     sentimentScore: 0.05,
     theme: "Dashboard",
   },
   {
     content:
       "The new dashboard makes it much easier to understand our customer activity.",
-    sentiment: Sentiment.POS,
+    sentiment: "POS",
     sentimentScore: 0.86,
     theme: "Dashboard",
   },
@@ -154,78 +158,76 @@ async function main() {
   await prisma.user.deleteMany();
   await prisma.workspace.deleteMany();
 
-  // Create the demo workspace.
-  const workspace =
-    await prisma.workspace.create({
-      data: {
-        name: "LOOP Demo Workspace",
-      },
-    });
+  // Create demo workspace.
+  const workspace = await prisma.workspace.create({
+    data: {
+      name: "LOOP Demo Workspace",
+    },
+  });
 
-  console.log(
-    `Created workspace: ${workspace.name}`,
+  console.log(`Created workspace: ${workspace.name}`);
+
+  // Hash demo account passwords.
+  const adminPassword = await bcrypt.hash(
+    "Admin@123",
+    12,
   );
 
-  // Create passwords.
-  const adminPassword =
-    await bcrypt.hash("Admin@123", 12);
-
-  const analystPassword =
-    await bcrypt.hash("Analyst@123", 12);
-
-  const viewerPassword =
-    await bcrypt.hash("Viewer@123", 12);
-
-  // Create the three required users.
-  const admin =
-    await prisma.user.create({
-      data: {
-        name: "Demo Admin",
-        email: "admin@loop-demo.com",
-        passwordHash: adminPassword,
-        role: Role.ADMIN,
-        workspaceId: workspace.id,
-      },
-    });
-
-  const analyst =
-    await prisma.user.create({
-      data: {
-        name: "Demo Analyst",
-        email: "analyst@loop-demo.com",
-        passwordHash: analystPassword,
-        role: Role.ANALYST,
-        workspaceId: workspace.id,
-      },
-    });
-
-  const viewer =
-    await prisma.user.create({
-      data: {
-        name: "Demo Viewer",
-        email: "viewer@loop-demo.com",
-        passwordHash: viewerPassword,
-        role: Role.VIEWER,
-        workspaceId: workspace.id,
-      },
-    });
-
-  console.log(
-    `Created users: ${admin.email}, ${analyst.email}, ${viewer.email}`,
+  const analystPassword = await bcrypt.hash(
+    "Analyst@123",
+    12,
   );
+
+  const viewerPassword = await bcrypt.hash(
+    "Viewer@123",
+    12,
+  );
+
+  // Create demo users.
+  await prisma.user.create({
+    data: {
+      name: "Demo Admin",
+      email: "admin@loop-demo.com",
+      passwordHash: adminPassword,
+      role: "ADMIN" as SeedRole,
+      workspaceId: workspace.id,
+    },
+  });
+
+  await prisma.user.create({
+    data: {
+      name: "Demo Analyst",
+      email: "analyst@loop-demo.com",
+      passwordHash: analystPassword,
+      role: "ANALYST" as SeedRole,
+      workspaceId: workspace.id,
+    },
+  });
+
+  await prisma.user.create({
+    data: {
+      name: "Demo Viewer",
+      email: "viewer@loop-demo.com",
+      passwordHash: viewerPassword,
+      role: "VIEWER" as SeedRole,
+      workspaceId: workspace.id,
+    },
+  });
+
+  console.log("Created demo users.");
 
   // Create themes.
-  const createdThemes =
-    new Map<string, string>();
+  const createdThemes = new Map<string, string>();
 
   for (const theme of themes) {
-    const createdTheme =
-      await prisma.theme.create({
-        data: {
-          ...theme,
-          workspaceId: workspace.id,
-        },
-      });
+    const createdTheme = await prisma.theme.create({
+      data: {
+        name: theme.name,
+        description: theme.description,
+        color: theme.color,
+        workspaceId: workspace.id,
+      },
+    });
 
     createdThemes.set(
       createdTheme.name,
@@ -234,10 +236,10 @@ async function main() {
   }
 
   console.log(
-    `Created ${createdThemes.size} themes`,
+    `Created ${createdThemes.size} themes.`,
   );
 
-  // Create 120 feedback items.
+  // Create 120 realistic feedback records.
   for (let i = 0; i < 120; i++) {
     const template =
       feedbackTemplates[
@@ -247,12 +249,12 @@ async function main() {
     const channel =
       channels[i % channels.length];
 
-    const status =
+    const status: SeedStatus =
       i % 3 === 0
-        ? FeedbackStatus.NEW
+        ? "NEW"
         : i % 3 === 1
-          ? FeedbackStatus.REVIEWED
-          : FeedbackStatus.ACTIONED;
+          ? "REVIEWED"
+          : "ACTIONED";
 
     const feedback =
       await prisma.feedback.create({
@@ -274,12 +276,17 @@ async function main() {
             .toString()
             .padStart(2, "0")}`,
 
-          sentiment: template.sentiment,
+          sentiment:
+            template.sentiment as "POS" | "NEU" | "NEG",
 
           sentimentScore:
             template.sentimentScore,
 
-          status,
+          status:
+            status as
+              | "NEW"
+              | "REVIEWED"
+              | "ACTIONED",
 
           workspaceId: workspace.id,
 
@@ -311,7 +318,7 @@ async function main() {
   }
 
   console.log(
-    "Created 120 feedback items",
+    "Created 120 feedback items.",
   );
 
   console.log(
@@ -321,10 +328,7 @@ async function main() {
 
 main()
   .catch((error) => {
-    console.error(
-      "Seed failed:",
-      error,
-    );
+    console.error("Seed failed:", error);
     process.exit(1);
   })
   .finally(async () => {
