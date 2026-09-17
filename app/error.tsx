@@ -25,7 +25,7 @@ export default function Error({
         </p>
 
         <h1 className="mt-2 text-3xl font-bold tracking-tight">
-          We couldn't load this page
+         We couldn&apos;t load this page.
         </h1>
 
         <p className="mt-3 text-sm leading-6 text-slate-500">
