@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { z } from "zod";
-import { Prisma } from "@prisma/client";
+
 
 import { generateVocReport } from "@/lib/ai";
 import { authOptions } from "@/lib/auth";
