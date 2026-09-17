@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
+import { Prisma } from "@prisma/client";
 
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
@@ -11,21 +12,23 @@ type RouteContext = {
   };
 };
 
+type WorkspaceTheme = {
+  id: string;
+  name: string;
+  color: string | null;
+};
+
 /*
  * Resolve AI-returned theme names against the current workspace.
  *
- * If a theme already exists, reuse it.
- * If the AI proposes a new theme, create it in this workspace.
+ * Existing themes are reused.
+ * New themes proposed by the AI are created in this workspace.
  */
 async function resolveFeedbackThemes(
   classificationThemes: string[],
   workspaceId: string,
-) {
-  const resolvedThemes: Array<{
-    id: string;
-    name: string;
-    color: string | null;
-  }> = [];
+): Promise<WorkspaceTheme[]> {
+  const resolvedThemes: WorkspaceTheme[] = [];
 
   for (const rawThemeName of classificationThemes) {
     const themeName = rawThemeName.trim();
@@ -35,14 +38,8 @@ async function resolveFeedbackThemes(
     }
 
     /*
-     * First try to find an existing theme.
-     *
-     * The comparison is case-insensitive so:
-     * "Delivery Issues"
-     * "delivery issues"
-     * "DELIVERY ISSUES"
-     *
-     * all resolve to the same workspace theme.
+     * Reuse an existing workspace theme.
+     * Comparison is case-insensitive.
      */
     const existingTheme = await prisma.theme.findFirst({
       where: {
@@ -72,11 +69,8 @@ async function resolveFeedbackThemes(
     }
 
     /*
-     * The AI returned a theme that does not yet exist
-     * in this workspace.
-     *
-     * Create it so the theme becomes a real persistent
-     * workspace theme and can be reused later.
+     * Create a new workspace theme when the AI proposes
+     * a theme that does not already exist.
      */
     const newTheme = await prisma.theme.create({
       data: {
@@ -120,17 +114,16 @@ export async function POST(
       );
     }
 
+    const workspaceId = session.user.workspaceId;
+
     /*
      * Step 1:
      * Find the feedback inside the current workspace.
-     *
-     * The workspace check prevents users from classifying
-     * feedback belonging to another workspace.
      */
     const feedback = await prisma.feedback.findFirst({
       where: {
         id: params.id,
-        workspaceId: session.user.workspaceId,
+        workspaceId,
       },
       select: {
         id: true,
@@ -149,12 +142,12 @@ export async function POST(
      * Step 2:
      * Load the current workspace themes.
      *
-     * These are supplied to the AI so it can prefer
-     * reusing existing themes.
+     * Existing themes are supplied to the AI so that
+     * it can prefer reusing them.
      */
     const themes = await prisma.theme.findMany({
       where: {
-        workspaceId: session.user.workspaceId,
+        workspaceId,
       },
       select: {
         id: true,
@@ -166,12 +159,13 @@ export async function POST(
     });
 
     const themeNames = themes.map(
-  (theme: { name: string }) => theme.name,
-);
+      (theme: { id: string; name: string }) =>
+        theme.name,
+    );
 
     /*
      * Step 3:
-     * Ask AI to classify the feedback.
+     * Ask the AI to classify the feedback.
      */
     let classification;
 
@@ -187,8 +181,7 @@ export async function POST(
       );
 
       /*
-       * The feedback remains in the database.
-       * We only flag it for manual review.
+       * Keep the feedback but flag it for manual review.
        */
       await prisma.feedback.update({
         where: {
@@ -211,17 +204,14 @@ export async function POST(
 
     /*
      * Step 4:
-     * Resolve the AI's themes.
-     *
-     * Existing themes are reused.
-     * New AI-proposed themes are created.
+     * Resolve AI-generated themes against the workspace.
      */
-    let resolvedThemes;
+    let resolvedThemes: WorkspaceTheme[];
 
     try {
       resolvedThemes = await resolveFeedbackThemes(
         classification.themes,
-        session.user.workspaceId,
+        workspaceId,
       );
     } catch (themeError) {
       console.error(
@@ -230,8 +220,8 @@ export async function POST(
       );
 
       /*
-       * We do not want to lose the classification just
-       * because theme persistence failed.
+       * Preserve the AI classification even if theme
+       * persistence fails.
        */
       await prisma.feedback.update({
         where: {
@@ -260,49 +250,53 @@ export async function POST(
 
     /*
      * Step 5:
-     * Persist the classification and theme relationships
+     * Persist classification and theme relationships
      * atomically.
      */
-    await prisma.$transaction(async (tx) => {
-      await tx.feedback.update({
-        where: {
-          id: feedback.id,
-        },
-        data: {
-          sentiment: classification.sentiment,
-          sentimentScore:
-            classification.sentimentScore,
-          featureArea: classification.featureArea,
-          aiRationale: classification.rationale,
-          needsManualReview: false,
-        },
-      });
-
-      /*
-       * Remove old theme assignments first.
-       *
-       * This makes re-classification replace the previous
-       * theme assignment instead of accumulating duplicates.
-       */
-      await tx.feedbackTheme.deleteMany({
-        where: {
-          feedbackId: feedback.id,
-        },
-      });
-
-      /*
-       * Attach the newly resolved themes.
-       */
-      if (resolvedThemes.length > 0) {
-        await tx.feedbackTheme.createMany({
-          data: resolvedThemes.map((theme) => ({
-            feedbackId: feedback.id,
-            themeId: theme.id,
-            confidence: 1,
-          })),
+    await prisma.$transaction(
+      async (tx: Prisma.TransactionClient) => {
+        await tx.feedback.update({
+          where: {
+            id: feedback.id,
+          },
+          data: {
+            sentiment: classification.sentiment,
+            sentimentScore:
+              classification.sentimentScore,
+            featureArea:
+              classification.featureArea,
+            aiRationale:
+              classification.rationale,
+            needsManualReview: false,
+          },
         });
-      }
-    });
+
+        /*
+         * Remove old theme assignments first.
+         *
+         * This makes re-classification replace the
+         * previous assignments instead of accumulating them.
+         */
+        await tx.feedbackTheme.deleteMany({
+          where: {
+            feedbackId: feedback.id,
+          },
+        });
+
+        /*
+         * Attach the newly resolved themes.
+         */
+        if (resolvedThemes.length > 0) {
+          await tx.feedbackTheme.createMany({
+            data: resolvedThemes.map((theme) => ({
+              feedbackId: feedback.id,
+              themeId: theme.id,
+              confidence: 1,
+            })),
+          });
+        }
+      },
+    );
 
     /*
      * Step 6:
